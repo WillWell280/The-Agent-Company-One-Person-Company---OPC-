@@ -1,0 +1,2468 @@
+<!doctype html>
+<html lang="en-US">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f8fc">
+  <title>AI Agent Collaboration Workspace</title>
+  <script>
+    if ("scrollRestoration" in history) history.scrollRestoration = "manual";
+    try {
+      const pageUrl = new URL(window.location.href);
+      const pageTab = pageUrl.searchParams.get("tab") || "studio";
+      const pageMode = pageTab === "studio" ? (pageUrl.searchParams.get("mode") || "auto") : "";
+      const pageScrollKey = `genericAgentPageScrollV1:${pageUrl.pathname}?tab=${pageTab}${pageMode ? `&mode=${pageMode}` : ""}`;
+      if (
+        sessionStorage.getItem("genericAgentPendingFormScrollV3")
+        || sessionStorage.getItem(pageScrollKey)
+      ) {
+        document.documentElement.classList.add("is-restoring-scroll");
+      }
+    } catch (_) {}
+  </script>
+  <link rel="stylesheet" href="/static/app.css?v=20260719-4">
+</head>
+<body data-active-tab="{{ tab }}">
+  <script>
+    try {
+      const savedSidebarWidth = parseInt(localStorage.getItem("genericAgentSidebarWidth") || "", 10);
+      if (!Number.isNaN(savedSidebarWidth)) {
+        const maxSidebarWidth = Math.max(260, Math.min(560, Math.round(window.innerWidth * .48)));
+        document.documentElement.style.setProperty(
+          "--sidebar-width",
+          Math.max(260, Math.min(maxSidebarWidth, savedSidebarWidth)) + "px"
+        );
+      }
+      const storedSidebarState = localStorage.getItem("genericAgentSidebarCollapsed");
+      if (
+        window.innerWidth <= 520
+        || storedSidebarState === "1"
+        || (storedSidebarState === null && window.innerWidth <= 1100)
+      ) {
+        document.body.classList.add("sidebar-collapsed");
+      }
+      if (localStorage.getItem("genericAgentRightCollapsed") === "1") {
+        document.body.classList.add("right-collapsed");
+      }
+      if (localStorage.getItem("genericAgentDarkMode") === "1") {
+        document.documentElement.classList.add("dark-mode");
+        document.body.classList.add("dark-mode");
+      }
+    } catch (_) {}
+  </script>
+  <aside class="st-sidebar" data-scroll-key="sidebar">
+    <button class="sidebar-collapse" type="button" onclick="toggleSidebar()" aria-label="Collapse sidebar">⏴</button>
+    <div class="sidebar-brand">
+      <span class="brand-mark" aria-hidden="true">A</span>
+      <span>
+        <strong>Agent Office</strong>
+        <small>AI Company Console</small>
+      </span>
+    </div>
+    <form method="post" action="/config" id="sidebar-config">
+      <input type="hidden" name="return_tab" value="{{ tab }}">
+      <div class="sidebar-section-head">
+        <span>Model Hub</span>
+        <span class="status-dot {% if global_config.model %}online{% endif %}"></span>
+      </div>
+      <p class="caption sidebar-intro">Set the default AI provider and model for your agent company. Disable per-agent settings to use this configuration.</p>
+
+      {% set global_cfg = global_config %}
+      {% set global_model_display = '' if global_cfg.provider == 'Mock (Demo)' and global_cfg.model == 'mock-studio-model' else global_cfg.model %}
+      <input type="hidden" name="global_rendered_provider" value="{{ global_cfg.provider }}">
+      <label>AI Provider</label>
+      <select name="global_provider" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+        {% for provider in providers %}
+        <option value="{{ provider }}" {% if global_cfg.provider == provider %}selected{% endif %}>{{ provider_labels.get(provider, provider) }}</option>
+        {% endfor %}
+      </select>
+
+      {% if global_cfg.provider != 'Mock (Demo)' %}
+      <label>API Key</label>
+      <div class="api-key-row">
+        <input class="api-key-input" type="password" name="global_key" value="{{ global_cfg.key or '' }}" placeholder="Enter API key" onchange="submitFormPreservingPosition(this)" autocomplete="off" {% if store.is_running %}disabled{% endif %}>
+        <button class="api-key-toggle" type="button" onclick="toggleApiKeyVisibility(this)" onmousedown="event.preventDefault()" aria-pressed="false" {% if store.is_running %}disabled{% endif %}>Show</button>
+      </div>
+      {% endif %}
+
+      <label>Model</label>
+      <select name="global_selected_model" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+        <option value="" {% if not global_model_display %}selected{% endif %}>Select a model</option>
+        {% for model in models.get(global_cfg.provider, []) %}
+        <option value="{{ model }}" {% if global_model_display == model %}selected{% endif %}>{{ model }}</option>
+        {% endfor %}
+      </select>
+      <label>Custom model ID (optional; overrides the selection above)</label>
+      <input name="global_custom_model" placeholder="Example: gpt-4o-2024-08-06" value="{% if global_model_display and global_model_display not in models.get(global_cfg.provider, []) %}{{ global_model_display }}{% endif %}" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+      {% if global_model_display %}
+      <p class="caption">Active model: <code>{{ global_model_display }}</code></p>
+      {% else %}
+      <p class="caption">Active model: Select a model or enter a custom model ID.</p>
+      {% endif %}
+
+      <hr>
+      <label class="checkline">
+        <input type="checkbox" name="per_emp" {% if per_emp_enabled %}checked{% endif %} onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+        🧩 Configure a model for each agent
+      </label>
+      <p class="caption sidebar-intro per-employee-model-hint">Enable this to override the Model Hub settings by agent.</p>
+      {% if per_emp_enabled %}
+      <details class="side-expander" open data-persist-key="sidebar-emp-config-root">
+        <summary>Per-Agent Model Settings</summary>
+        <p class="caption">Agents without an override use the Model Hub defaults.</p>
+        {% for emp in employees %}
+        {% set emp_model_display = '' if emp.config.provider == 'Mock (Demo)' and emp.config.model == 'mock-studio-model' else emp.config.model %}
+        <details class="side-expander nested" data-persist-key="sidebar-emp-config-{{ emp.key }}">
+          <summary>{{ emp.emoji }} {{ emp.name }}</summary>
+          <input type="hidden" name="emp_{{ emp.key }}_rendered_provider" value="{{ emp.config.provider }}">
+          <label>AI Provider</label>
+          <select name="emp_{{ emp.key }}_provider" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+            {% for provider in providers %}
+            <option value="{{ provider }}" {% if emp.config.provider == provider %}selected{% endif %}>{{ provider_labels.get(provider, provider) }}</option>
+            {% endfor %}
+          </select>
+          {% if emp.config.provider != 'Mock (Demo)' %}
+          <label>API Key</label>
+          <div class="api-key-row">
+            <input class="api-key-input" type="password" name="emp_{{ emp.key }}_key" value="{{ emp.config.key or '' }}" placeholder="Enter API key" onchange="submitFormPreservingPosition(this)" autocomplete="off" {% if store.is_running %}disabled{% endif %}>
+            <button class="api-key-toggle" type="button" onclick="toggleApiKeyVisibility(this)" onmousedown="event.preventDefault()" aria-pressed="false" {% if store.is_running %}disabled{% endif %}>Show</button>
+          </div>
+          {% endif %}
+          <label>Model</label>
+          <select name="emp_{{ emp.key }}_selected_model" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+            <option value="" {% if not emp_model_display %}selected{% endif %}>Select a model</option>
+            {% for model in models.get(emp.config.provider, []) %}
+            <option value="{{ model }}" {% if emp_model_display == model %}selected{% endif %}>{{ model }}</option>
+            {% endfor %}
+          </select>
+          <label>Custom model ID (optional)</label>
+          <input name="emp_{{ emp.key }}_custom_model" value="{% if emp_model_display and emp_model_display not in models.get(emp.config.provider, []) %}{{ emp_model_display }}{% endif %}" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+        </details>
+        {% endfor %}
+      </details>
+      {% endif %}
+
+      <hr>
+      {% set search_cfg = search_config %}
+      <div class="sidebar-section-head">
+        <span>Search Tools</span>
+        <span class="status-dot {% if search_cfg.configured %}online{% endif %}"></span>
+      </div>
+      <p class="caption sidebar-intro">Configure web research for tasks with Web Research enabled.</p>
+      <input type="hidden" name="search_rendered_provider" value="{{ search_cfg.provider }}">
+      <label>Search Provider</label>
+      <select name="search_provider" onchange="submitFormPreservingPosition(this)" {% if store.is_running %}disabled{% endif %}>
+        {% for provider in search_providers %}
+        <option value="{{ provider }}"
+                {% if search_cfg.provider == provider %}selected{% endif %}
+                {% if provider == 'Bing Search' %}disabled{% endif %}>
+          {% if provider == 'Bing Search' %}Bing Search (retired by Microsoft){% else %}{{ provider }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+      {% if search_cfg.provider != search_provider_none and search_cfg.provider != 'Bing Search' %}
+      <label>Search API Key</label>
+      <div class="api-key-row">
+        <input class="api-key-input" type="password" name="search_key"
+               value="{{ search_cfg.key or '' }}" placeholder="Enter search API key"
+               onchange="submitFormPreservingPosition(this)" autocomplete="off"
+               {% if store.is_running %}disabled{% endif %}>
+        <button class="api-key-toggle" type="button" onclick="toggleApiKeyVisibility(this)"
+                onmousedown="event.preventDefault()" aria-pressed="false"
+                {% if store.is_running %}disabled{% endif %}>Show</button>
+      </div>
+      <p class="caption search-key-note">The key stays in memory for this session only. You can also provide it at startup through the <code>SEARCH_API_KEY</code> environment variable.</p>
+      {% elif search_cfg.provider == 'Bing Search' %}
+      <p class="caption search-provider-warning">{{ bing_search_retirement_message }}</p>
+      {% else %}
+      <p class="caption">Select a web search provider to continue.</p>
+      {% endif %}
+    </form>
+
+    <hr>
+    <form method="post" action="/reset">
+      <button class="full subtle-danger" type="submit" onclick="return confirm('Reset the current run? Agent and task settings will be preserved.')">Reset Run</button>
+    </form>
+    <p class="caption">Clears inputs, outputs, logs, and reviews without deleting agents or tasks.</p>
+  </aside>
+  <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-orientation="vertical" title="Drag to resize the sidebar"></div>
+  <button class="sidebar-expand" type="button" onclick="toggleSidebar()" aria-label="Expand sidebar">⏵</button>
+
+  <main class="st-main">
+    <div class="top-toolbar">
+      <button type="button" onclick="clearUiCache()" title="Restore the default interface layout">Reset Layout</button>
+      <button type="button" id="dark-toggle-button" onclick="toggleDarkMode()" title="Dark mode" aria-label="Switch to dark mode">Dark Mode</button>
+    </div>
+    {% set progress_percent = ((done_count * 100 / (tasks|length)) if tasks else 0)|round|int %}
+    <header class="product-hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span></span> AGENT OPERATING SYSTEM</div>
+        <h1>{{ workflow.name }}</h1>
+      </div>
+      <div class="hero-status {% if store.is_running %}running{% elif done_count == tasks|length and tasks %}complete{% endif %}">
+        <span class="hero-status-pulse"></span>
+        <span data-runtime-status-text>
+          {% if store.is_running %}Workflow running{% elif done_count == tasks|length and tasks %}Run complete{% else %}Ready to run{% endif %}
+        </span>
+      </div>
+      <div class="company-metrics">
+        <div class="metric-card">
+          <span>AI Agents</span>
+          <strong>{{ employees|length }}</strong>
+          <small>Fully configurable</small>
+        </div>
+        <div class="metric-card">
+          <span>Workflow Tasks</span>
+          <strong>{{ tasks|length }}</strong>
+          <small>Dependency-aware</small>
+        </div>
+        <div class="metric-card">
+          <span>Completed</span>
+          <strong><i data-runtime-done-count>{{ done_count }}</i>/{{ tasks|length }}</strong>
+          <small>{{ progress_percent }}% complete</small>
+        </div>
+        <div class="metric-card progress-card">
+          <span>Run Progress</span>
+          <strong data-runtime-progress-label>{{ progress_percent }}%</strong>
+          <div class="metric-progress"><i data-runtime-progress style="width:{{ progress_percent }}%"></i></div>
+        </div>
+      </div>
+    </header>
+
+    <nav class="top-tabs" data-scroll-key="top-tabs">
+      <a href="/?tab=studio&mode={{ mode }}" class="{% if tab == 'studio' %}active{% endif %}"><span>01</span> Agent Office</a>
+      <a href="/?tab=settings" class="{% if tab == 'settings' %}active{% endif %}"><span>02</span> Company Setup</a>
+      <a href="/?tab=docs" class="{% if tab == 'docs' %}active{% endif %}"><span>03</span> Delivery History <b>{{ store.doc_history|length }}</b></a>
+    </nav>
+
+    {% if tab == 'studio' %}
+    {% if workflow_issues %}
+    <div class="st-alert danger workflow-issue-alert">
+      <b>Fix the workflow before running it</b>
+      {% for issue in workflow_issues %}<span>{{ issue }}</span>{% endfor %}
+      <a href="/?tab=settings">Open Company Setup</a>
+    </div>
+    {% endif %}
+    <button class="right-expand" type="button" onclick="toggleRightbar()">🔗 Expand ⏵</button>
+    <section class="workbench">
+      <section class="wb-center">
+        <section class="st-container office-panel elevated is-restoring-layout" data-office-shell>
+          <div class="office-commandbar">
+            <div class="office-command-title">
+              <span class="office-live-mark"><i></i> LIVE</span>
+              <span>
+                <h2>Live Agent Office</h2>
+                <small>Agent Operations Floor · Layout saved automatically in this browser</small>
+              </span>
+            </div>
+            <div class="office-tools" aria-label="Agent Office layout tools">
+              <button type="button" class="office-tool primary-tool" data-office-edit aria-pressed="false" title="Move agents and office elements">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5M8 12h8M12 8v8"/></svg>
+                <span>Edit Layout</span>
+              </button>
+              <button type="button" class="office-tool" data-office-arrange title="Arrange AI agents automatically">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="6" height="6" rx="1"/><rect x="14" y="5" width="6" height="6" rx="1"/><rect x="4" y="15" width="6" height="4" rx="1"/><rect x="14" y="15" width="6" height="4" rx="1"/></svg>
+                <span>Auto Arrange</span>
+              </button>
+              <button type="button" class="office-tool" data-office-reset title="Restore default positions">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2.3 6.2M4 16v-5h5"/></svg>
+                <span>Reset</span>
+              </button>
+              <button type="button" class="office-tool" data-office-fullscreen title="Enter full-screen mode">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v4M16 4h4v4M8 20H4v-4M16 20h4v-4"/></svg>
+                <span data-office-fullscreen-label>Full Screen</span>
+              </button>
+            </div>
+          </div>
+          <div class="office-viewport" data-office-viewport data-scroll-key="office-viewport">
+            <div class="office-scene" data-office-scene data-office-id="{{ workflow.name }}" style="background-image:url('{{ office_url }}')">
+              <div class="office-atmosphere" aria-hidden="true">
+                <span class="office-light light-one"></span>
+                <span class="office-light light-two"></span>
+              </div>
+              <div class="office-layout-grid" aria-hidden="true"></div>
+              <div class="office-floor-badge" aria-hidden="true">
+                <span>FLOOR 01</span>
+                <i></i><i></i><i></i>
+              </div>
+
+              <button class="office-prop office-prop-board" type="button" data-office-draggable data-office-prop="board"
+                      data-default-x="17" data-default-y="17" style="left:17%;top:17%" tabindex="-1" aria-label="Movable element: inspiration board">
+                <svg viewBox="0 0 64 58" aria-hidden="true">
+                  <rect class="prop-shadow" x="9" y="9" width="49" height="39" rx="5"/>
+                  <rect class="prop-main" x="5" y="5" width="49" height="39" rx="5"/>
+                  <path class="prop-line" d="M14 15h13M14 22h24M14 29h17"/>
+                  <circle class="prop-accent" cx="43" cy="16" r="5"/>
+                  <path class="prop-stand" d="M18 45v8M42 45v8"/>
+                </svg>
+                <span>Idea Board</span>
+              </button>
+              <button class="office-prop office-prop-plant" type="button" data-office-draggable data-office-prop="plant"
+                      data-default-x="91" data-default-y="23" style="left:91%;top:23%" tabindex="-1" aria-label="Movable element: plant">
+                <svg viewBox="0 0 54 64" aria-hidden="true">
+                  <path class="prop-leaf leaf-one" d="M27 35C8 31 7 14 10 7c13 2 19 10 17 28Z"/>
+                  <path class="prop-leaf leaf-two" d="M28 34C46 30 49 14 46 7 34 9 27 17 28 34Z"/>
+                  <path class="prop-leaf leaf-three" d="M27 36C16 23 20 8 27 3c8 8 9 21 0 33Z"/>
+                  <path class="prop-stem" d="M27 24v20"/>
+                  <path class="prop-pot" d="M14 40h26l-4 19H18Z"/>
+                </svg>
+                <span>Plant</span>
+              </button>
+              <button class="office-prop office-prop-coffee" type="button" data-office-draggable data-office-prop="coffee"
+                      data-default-x="87" data-default-y="73" style="left:87%;top:73%" tabindex="-1" aria-label="Movable element: coffee station">
+                <i class="coffee-steam" aria-hidden="true"></i>
+                <svg viewBox="0 0 60 60" aria-hidden="true">
+                  <rect class="prop-shadow" x="8" y="12" width="42" height="39" rx="7"/>
+                  <rect class="prop-main" x="5" y="8" width="42" height="39" rx="7"/>
+                  <rect class="prop-screen" x="13" y="15" width="24" height="10" rx="2"/>
+                  <path class="prop-line" d="M16 31h20M18 35h16"/>
+                  <path class="prop-cup" d="M19 39h14v10H19zM33 41h4c4 0 4 6 0 6h-4"/>
+                </svg>
+                <span>Coffee</span>
+              </button>
+
+              {% for emp in employees %}
+              {% set employee_tasks = tasks if emp.is_manager else tasks|selectattr('owner', 'equalto', emp.key)|list %}
+              <div class="emp-pin {{ emp.state }}" data-emp-key="{{ emp.key }}" data-office-draggable
+                   data-default-x="{{ emp.pos[0] }}" data-default-y="{{ emp.pos[1] }}"
+                   style="left:{{ emp.pos[0] }}%;top:{{ emp.pos[1] }}%">
+                <button class="emp-actor-button" type="button"
+                        title="{{ emp.name }} · View model and assigned tasks"
+                        aria-expanded="false" aria-controls="office-employee-card-{{ emp.key }}"
+                        aria-label="{{ emp.name }}. View model and assigned tasks. Enter Edit Layout mode to reposition this agent.">
+                  <span class="office-actor-state" data-office-state-label>{{ emp.state_label }}</span>
+                  <span class="emp-avatar-shell">
+                    {{ emp.sprite|safe }}
+                    <i class="emp-status-dot" aria-hidden="true"></i>
+                  </span>
+                  <span class="tag"><span>{{ emp.emoji }}</span> {{ emp.short }}</span>
+                </button>
+                <div class="office-actor-card" id="office-employee-card-{{ emp.key }}" role="region"
+                     aria-label="{{ emp.name }} model and tasks" aria-hidden="true" hidden>
+                  <div class="office-actor-card-head">
+                    <span>{{ emp.emoji }}</span>
+                    <strong>{{ emp.name }}</strong>
+                  </div>
+                  <div class="office-actor-card-row">
+                    <small>Model</small>
+                    <b>
+                      {% if emp.config.provider == 'Mock (Demo)' %}
+                      Demo model
+                      {% elif emp.config.model %}
+                      {{ emp.config.provider_label }} · {{ emp.config.model }}
+                      {% else %}
+                      {{ emp.config.provider_label }} · No model selected
+                      {% endif %}
+                    </b>
+                  </div>
+                  <div class="office-actor-card-row task-row">
+                    <small>{% if emp.is_manager %}Orchestration and reviews{% else %}Assigned tasks{% endif %}</small>
+                    {% if employee_tasks %}
+                    <ul>
+                      {% for employee_task in employee_tasks %}
+                      <li>{{ employee_task.title }}</li>
+                      {% endfor %}
+                    </ul>
+                    {% else %}
+                    <b>No tasks assigned</b>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+              {% endfor %}
+              <div class="office-layout-tip" role="status" aria-live="polite">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 9 4-4 4 4M8 15l4 4 4-4M9 8 5 12l4 4M15 8l4 4-4 4"/></svg>
+                Drag agents and office elements to move them. Use arrow keys for fine adjustments.
+              </div>
+            </div>
+          </div>
+          <div class="office-cap">
+            <div class="office-legend">
+              <span><i class="state-key working"></i>Working</span>
+              <span><i class="state-key done"></i>Complete</span>
+              <span><i class="state-key idle"></i>Available</span>
+            </div>
+            <span class="office-cap-copy" data-office-layout-status>Agent status updates in real time. Select an agent to view its model and tasks.</span>
+          </div>
+        </section>
+
+        <div class="section-heading input-heading">
+          <div>
+            <span class="section-kicker">MISSION BRIEF</span>
+            <h2>Launch a Mission</h2>
+          </div>
+          <span class="section-note">Use text, images, and files as context</span>
+        </div>
+        <section class="st-container mission-card elevated" id="mission-brief" data-position-key="mission-brief">
+          <div id="mission-editor" data-mission-editor>
+            <div class="field-title-row">
+              <label for="mission-input">Objective, Context, and Deliverable Requirements</label>
+              <span class="mission-save-status" data-mission-save-status data-state="saved" role="status" aria-live="polite">Autosaved</span>
+            </div>
+            <textarea id="mission-input" name="input_text" rows="7" placeholder="Tell your agents what to accomplish. Include the objective, context, key constraints, reference material, and expected deliverable format." {% if store.is_running %}disabled{% endif %}>{{ input_text }}</textarea>
+            <div class="prompt-starters" aria-label="Mission brief templates">
+              <span>Quick start:</span>
+              <button type="button" data-prompt-template="Objective:&#10;Context:&#10;Key constraints:&#10;Expected deliverable:&#10;Success criteria:">General Task</button>
+              <button type="button" data-prompt-template="Product objective:&#10;Target users:&#10;Core use case:&#10;Current problem:&#10;Expected solution and deliverable:">Product Strategy</button>
+              <button type="button" data-prompt-template="Research topic:&#10;Scope:&#10;Available sources:&#10;Questions to validate:&#10;Report structure and standards:">Research</button>
+            </div>
+            <div class="asset-list" data-input-asset-list {% if not input_assets %}hidden{% endif %}>
+              <b>Uploaded Attachments</b>
+              <div data-input-asset-rows>
+              {% for asset in input_assets %}
+	              <div class="asset-row">
+                <span>
+                  {{ asset.name }} · {{ asset.mime }} · {{ asset.size }} bytes
+                  {% if asset.extraction_status == 'success' %}<small>Text/tables extracted · {{ asset.extracted_chars }} characters</small>
+                  {% elif asset.extraction_status == 'visual' %}<small>Image will be used as visual context</small>
+                  {% elif asset.extraction_note %}<small>{{ asset.extraction_note }}</small>{% endif %}
+                </span>
+                <a class="download" href="/download/input/asset/{{ asset.id }}">Download</a>
+	                <button type="button" data-input-asset-delete="{{ asset.id }}" {% if store.is_running %}disabled{% endif %}>Delete</button>
+	              </div>
+              {% endfor %}
+              </div>
+            </div>
+            <label for="mission-files">Reference Attachments</label>
+            <div class="file-drop">
+              <input id="mission-files" type="file" name="input_files" multiple data-reference-upload {% if store.is_running %}disabled{% endif %}>
+              <span data-file-drop-label>Select images or files</span>
+              <small data-file-drop-hint>Files upload automatically. Images are added to vision-model context. Maximum 8 MB per file.</small>
+            </div>
+            <div class="file-upload-status" data-file-upload-status hidden aria-live="polite"></div>
+          </div>
+        </section>
+
+        {% if store.interrupted_task %}
+        <div class="st-alert warning">
+          ⚠️ The previous run was interrupted during Task {{ store.interrupted_task }}. You can resume from the current progress.
+          <form method="post" action="/resume" class="inline"><button class="primary">▶️ Resume Run</button></form>
+          <form method="post" action="/dismiss-interrupted" class="inline"><button>Dismiss</button></form>
+        </div>
+        {% endif %}
+        <div id="run-banner-slot">
+          {% if store.is_running %}
+          <div class="run-banner">
+            <div>⏳ Workflow running · Current: Task {{ store.running_task or 'Preparing' }}{% if running_employee_label %} · Active agent: {{ running_employee_label }}{% endif %}</div>
+            <form method="post" action="/stop"><button>⏹ Stop Run</button></form>
+          </div>
+          {% endif %}
+        </div>
+        <div id="failed-alert-slot">
+          {% if store.failed_task %}
+          {% if search_failure_hint %}
+          <div class="st-alert danger">⛔ Web research failed for Task {{ store.failed_task }}.<br><b>How to fix it:</b> Open Search Tools in the left sidebar, select an available provider, and enter a valid search API key.</div>
+          {% else %}
+          <div class="st-alert danger">⛔ Task {{ store.failed_task }} failed after up to {{ task_max_retries }} API retries and manager revision checks. Verify the model configuration, API key, network connection, and endpoint.{% if api_failure_hint %}<br><b>API troubleshooting:</b> Open the model settings in the left sidebar, re-enter the API key for the assigned agent, and confirm the model ID.{% endif %}</div>
+          {% endif %}
+          {% endif %}
+        </div>
+
+        <section class="st-container operation-card">
+          <div class="operation-title">
+            <div>
+              <span class="section-kicker">EXECUTION MODE</span>
+              <div class="mode-title">Choose a Run Mode</div>
+            </div>
+            <span class="caption">Switch modes without affecting existing outputs</span>
+          </div>
+          <div class="mode-radio">
+            <div class="mode-auto-card {% if mode == 'auto' %}selected{% endif %}{% if store.is_running %} disabled{% endif %}">
+              <label>
+                <input type="radio" name="run_mode_radio" data-auto-run-input {% if mode == 'auto' %}checked{% endif %}
+                       onchange="navigatePreservingPosition('/?tab=studio&mode=auto', this)"
+                       {% if store.is_running %}disabled{% endif %}>
+                <span><b>Autopilot</b><small data-auto-run-hint>Run the full dependency-aware workflow with automatic reviews</small></span>
+              </label>
+              <button class="primary auto-run-launch" type="button" data-auto-run-trigger
+                      aria-label="Start Autopilot"
+                      {% if store.is_running or not tasks or workflow_issues %}disabled{% endif %}>
+                <span data-auto-run-label>Start</span>
+              </button>
+            </div>
+            <label class="{% if mode == 'manual' %}selected{% endif %}">
+              <input type="radio" name="run_mode_radio" {% if mode == 'manual' %}checked{% endif %} onchange="navigatePreservingPosition('/?tab=studio&mode=manual', this)">
+              <span><b>Expert Mode</b><small>Run tasks individually, edit outputs, and take manual control</small></span>
+            </label>
+          </div>
+        </section>
+
+        {% if mode == 'manual' %}
+        <section class="task-section">
+          <h3>🙋 Manual Task Control</h3>
+          <div class="manual-rest">
+            <form method="post" action="/run/rest"><button class="primary full" {% if store.is_running or done_count == tasks|length or workflow_issues %}disabled{% endif %}>Run Remaining Tasks</button></form>
+            <p class="caption"><span data-runtime-done-count>{{ done_count }}</span>/<span data-runtime-total-count>{{ tasks|length }}</span> tasks complete.</p>
+          </div>
+
+          {% for task in tasks %}
+          <section class="manual-card" data-position-key="{{ task.position_key }}">
+            <div class="task-head">
+              <b>Task {{ task.id }} · {{ task.title }}</b>
+              <span>{{ task.owner_emoji }} <b>{{ task.owner_name }}</b></span>
+              <em>{{ task.badge }}</em>
+            </div>
+            <p class="caption">{{ task.desc }}</p>
+            <p class="caption">Dependencies: {% if task.deps %}{{ task.deps_text }}{% else %}None{% endif %} · Context: {{ task.context_scope_label }} · Output: {{ task.output_modes }}</p>
+            {% if not task.ready and not store.is_running %}
+            <p class="caption">🔒 Dependencies are incomplete. Run the upstream tasks first, or paste/upload an output below to bypass execution.</p>
+            {% endif %}
+            <form method="post" action="/run/task/{{ task.id }}">
+              <button class="{% if task.ready and not task.done %}primary{% endif %}" {% if store.is_running or not task.ready %}disabled{% endif %}>{% if task.done %}▶️ Rerun Task{% else %}▶️ Run Task{% endif %}</button>
+            </form>
+            <details class="st-expander" {% if task.done %}open{% endif %} data-persist-key="manual-output-task-{{ task.id }}">
+              <summary>📄 View, Edit, or Upload Task Output</summary>
+              {% if task.reviews %}
+              <details class="review-expander" data-persist-key="manual-review-task-{{ task.id }}">
+                <summary>🧭 Manager Reviews ({{ task.reviews|length }} {% if task.reviews|length == 1 %}round{% else %}rounds{% endif %}; latest: {% if task.reviews[-1].passed %}✅ Approved{% else %}🔁 Needs Revision{% endif %}{% if task.reviews[-1].score is not none %} · Score {{ task.reviews[-1].score }}{% endif %})</summary>
+                {% for item in task.reviews %}
+                <div class="review-item">
+                  <b>Round {{ item.round or '?' }} · {% if item.passed %}✅ Approved{% else %}🔁 Needs Revision{% endif %} · {{ item.time or '' }}</b>
+                  {% if item.summary %}<p class="caption">{{ item.summary }}</p>{% endif %}
+                  {% if item.suggestions %}<div class="review-suggestions">{{ item.suggestions }}</div>{% endif %}
+                </div>
+                {% endfor %}
+              </details>
+              {% endif %}
+              <form method="post" action="/task/{{ task.id }}/save" enctype="multipart/form-data">
+                <label>Text Output</label>
+                <textarea name="content" rows="13" placeholder="Paste a local result or edit the AI-generated output.">{{ task.output_text }}</textarea>
+                {% if task.assets %}
+                <div class="asset-list">
+                  <b>Attachments</b>
+                  {% for asset in task.assets %}
+                  <div class="asset-row task-output-asset-row">
+                    <span>{{ asset.name }} · {{ asset.mime }} · {{ asset.size }} bytes</span>
+                    <a class="download" href="/download/task/{{ task.id }}/asset/{{ asset.id }}">Download</a>
+                  </div>
+                  {% endfor %}
+                </div>
+                {% endif %}
+                <label>Add Output Attachments</label>
+                <input type="file" name="output_files" multiple {% if store.is_running %}disabled{% endif %}>
+                <div class="compact-actions">
+                  <button {% if store.is_running %}disabled{% endif %}>💾 Save and Review</button>
+                  <button formaction="/task/{{ task.id }}/clear" {% if store.is_running %}disabled{% endif %}>🧹 Clear</button>
+                  {% if task.output_text %}<a class="download" href="/download/task/{{ task.id }}">📥 Download Text</a>{% endif %}
+                </div>
+              </form>
+            </details>
+          </section>
+          {% endfor %}
+        </section>
+        {% endif %}
+
+        <hr>
+        {% include "partials/results.html" %}
+      </section>
+
+      <aside class="wb-right">
+        <div class="right-title-row">
+          <div>
+            <span class="section-kicker">ORCHESTRATION</span>
+            <div class="panel-title">Workflow Map</div>
+          </div>
+          <button class="collapse-btn" type="button" onclick="toggleRightbar()" aria-label="Collapse workflow panel">⏴</button>
+        </div>
+        <div class="pipeline-summary">
+          <span>Workflow Progress</span>
+          <b><i data-runtime-done-count>{{ done_count }}</i> / <i data-runtime-total-count>{{ tasks|length }}</i></b>
+          <div class="metric-progress"><i data-runtime-progress style="width:{{ progress_percent }}%"></i></div>
+        </div>
+        <div class="pv">
+          <div class="pipeline" id="runtime-pipeline">
+            {% for task in pipeline_rows %}
+            <div class="pnode" style="border-color:{{ task.color }};background:{{ task.bg }}">
+              <span class="pn-id" style="color:{{ task.color }}">Task {{ task.id }}</span>
+              <b>{{ task.label }}</b>
+              <span class="pn-owner">{{ task.owner_emoji }} {{ task.owner_name }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          <div class="legend"><span class="state-key done"></span>Complete　<span class="state-key working"></span>Working　<span class="state-key ready"></span>Ready　<span class="state-key idle"></span>Waiting</div>
+        </div>
+        <div id="run-log-section" {% if not log_text and not store.is_running %}hidden{% endif %}>
+          <hr>
+          <details class="st-expander" {% if store.is_running %}open{% endif %}>
+            <summary>🛰️ Run Log</summary>
+            <pre class="log" data-log-scroll="run-log" data-scroll-key="run-log" data-running="{% if store.is_running %}1{% else %}0{% endif %}">{{ log_text }}</pre>
+          </details>
+        </div>
+      </aside>
+    </section>
+    {% endif %}
+
+    {% if tab == 'settings' %}
+    <section class="settings-page">
+      <div class="page-heading">
+        <div>
+          <span class="section-kicker">COMPANY BUILDER</span>
+          <h2>Build Your Agent Company</h2>
+          <p>Define your company objective, AI agents, skills, task dependencies, and acceptance criteria.</p>
+        </div>
+        <div class="settings-overview">
+          <span><b>{{ employees|length }}</b> agents</span>
+          <span><b>{{ tasks|length }}</b> tasks</span>
+        </div>
+      </div>
+      {% if workflow_issues %}
+      <div class="st-alert danger workflow-issue-alert">
+        <b>Dependency issues detected</b>
+        {% for issue in workflow_issues %}<span>{{ issue }}</span>{% endfor %}
+      </div>
+      {% endif %}
+      <div class="settings-toolbox">
+        <label for="settings-search">Find a setting</label>
+        <div class="settings-search-wrap">
+          <input id="settings-search" type="search" placeholder="Search agents, tasks, skills, or owners..." data-settings-search>
+          <span data-search-result></span>
+        </div>
+        <div class="settings-jumps">
+          <a href="#company-profile">Company Profile</a>
+          <a href="#employee-settings">AI Agents</a>
+          <a href="#task-settings">Workflow Tasks</a>
+        </div>
+      </div>
+
+      <div class="settings-actions-grid settings-quick-add">
+        <form method="post" action="/settings/employee/add" class="st-container settings-add-card settings-add-employee" data-merge-settings-form="settings-form">
+          <h4>➕ Add AI Agent</h4>
+          <p class="caption">The new agent will appear under AI Agent Settings, where you can edit its role and skills.</p>
+          <label>Name</label>
+          <input name="employee_name" placeholder="Example: Data Analyst" {% if store.is_running %}disabled{% endif %}>
+          <button class="primary" {% if store.is_running %}disabled{% endif %}>Add Agent</button>
+        </form>
+        <form method="post" action="/settings/task/add" class="st-container settings-add-card settings-add-task" data-merge-settings-form="settings-form">
+          <h4>➕ Add Workflow Task</h4>
+          <p class="caption">The new task will appear under Task Settings, where you can assign an owner, dependencies, and a working method.</p>
+          <label>Task Name</label>
+          <input name="task_title" placeholder="Example: Create the Data Analysis Report" {% if store.is_running %}disabled{% endif %}>
+          <button class="primary" {% if store.is_running %}disabled{% endif %}>Add Task</button>
+        </form>
+      </div>
+
+      <form method="post" action="/settings" id="settings-form">
+        <input type="hidden" name="settings_form_marker" value="1">
+        <button class="visually-hidden-submit" type="submit" formaction="/settings" formmethod="post" tabindex="-1" aria-hidden="true">Save Company Setup</button>
+        <section class="st-container settings-template-card">
+          <h4>📋 Workflow Templates</h4>
+          <p class="caption">Templates save the workflow name, AI agent settings, and task orchestration only. API keys, mission input, run results, and delivery history are never included. Selecting a template applies it immediately. Save as New Template creates a separate copy and preserves the original.</p>
+          <label>Template Name</label>
+          <input name="workflow_template_name" value="{{ workflow_template_name_value }}" placeholder="Example: Product Launch Content Workflow" {% if store.is_running %}disabled{% endif %}>
+          <label>Saved Templates</label>
+          <select name="workflow_template_id" data-template-select="1" {% if store.is_running %}disabled{% endif %}>
+            <option value="">Select a template (applies immediately)</option>
+            {% for template in workflow_templates %}
+            <option value="{{ template.id }}" {% if selected_workflow_template_id == template.id %}selected{% endif %}>{{ template.name }} · {{ template.task_count }} tasks · {{ template.employee_count }} agents</option>
+            {% endfor %}
+          </select>
+          <div class="compact-actions">
+            <button class="primary" type="submit" formaction="/settings/template/save" formmethod="post" {% if store.is_running %}disabled{% endif %}>💾 Save as New Template</button>
+            <button class="primary" type="button" data-template-preview-toggle
+                    aria-expanded="false" aria-controls="workflow-template-preview"
+                    {% if store.is_running or not selected_workflow_template %}disabled{% endif %}>👁 Preview Template</button>
+            <button type="submit" formaction="/settings/template/new" formmethod="post" {% if store.is_running %}disabled{% endif %}>🆕 New Template</button>
+            <button type="submit" formaction="/settings/template/delete" formmethod="post" {% if store.is_running or not workflow_templates %}disabled{% endif %}>🗑 Delete Selected</button>
+            <button class="visually-hidden-submit" type="submit" formaction="/settings/template/apply" formmethod="post" data-template-apply-button="1" tabindex="-1" aria-hidden="true">Apply Selected Template</button>
+          </div>
+          {% if selected_workflow_template %}
+          {% set preview_workflow = selected_workflow_template.workflow %}
+          {% set preview_employees = preview_workflow.employees %}
+          <section class="template-preview" id="workflow-template-preview" data-template-preview hidden>
+            <div class="template-preview-head">
+              <div>
+                <span>Template Workflow</span>
+                <b>{{ selected_workflow_template.name }}</b>
+              </div>
+            </div>
+            {% if preview_workflow.description %}
+            <p>{{ preview_workflow.description }}</p>
+            {% endif %}
+            <div class="template-preview-list">
+              {% for preview_task in preview_workflow.tasks %}
+              {% set preview_owner = preview_employees.get(preview_task.owner, {}) %}
+              <article class="template-preview-row">
+                <a href="#settings-task-{{ preview_task.id }}" data-template-preview-link>
+                  <small>Task {{ preview_task.id }}</small>
+                  <strong>{{ preview_task.title }}</strong>
+                </a>
+                <span aria-hidden="true">→</span>
+                <a href="#settings-employee-{{ preview_task.owner }}" data-template-preview-link>
+                  <small>Assigned Agent</small>
+                  <strong>{{ preview_owner.get('emoji', '👤') }} {{ preview_owner.get('name', preview_task.owner) }}</strong>
+                </a>
+              </article>
+              {% endfor %}
+            </div>
+          </section>
+          {% endif %}
+        </section>
+
+        <section class="st-container settings-workflow-card" id="company-profile">
+          <label>Workflow Name</label>
+          <input name="workflow_name" value="{{ workflow.name }}" {% if store.is_running %}disabled{% endif %}>
+          <label>Workflow Description</label>
+          <textarea name="workflow_description" rows="3" {% if store.is_running %}disabled{% endif %}>{{ workflow.description }}</textarea>
+          <label>Workflow Manager / Reviewer</label>
+          <select name="manager_key" {% if store.is_running %}disabled{% endif %}>
+            {% for emp in employees %}
+            <option value="{{ emp.key }}" {% if workflow.manager_key == emp.key %}selected{% endif %}>{{ emp.emoji }} {{ emp.name }}</option>
+            {% endfor %}
+          </select>
+        </section>
+
+        <details class="st-expander settings-employees-block" id="employee-settings" open data-persist-key="settings-employees">
+          <summary>🧑‍💼 AI Agent Settings: Roles and Skills</summary>
+          {% for emp in employees %}
+          <section class="manual-card settings-employee-card" id="settings-employee-{{ emp.key }}" data-position-key="{{ emp.position_key }}" data-settings-card data-search-text="{{ emp.name }} {{ emp.title }} {{ emp.intro }} {{ emp.skills }}">
+            <div class="task-head">
+              <b>{{ emp.emoji }} {{ emp.name }}</b>
+              <em>{% if emp.is_manager %}Manager{% else %}Agent{% endif %}</em>
+            </div>
+            <div class="settings-card-grid settings-employee-grid">
+              <div class="settings-field">
+                <label>Agent Name (recommended: fewer than 5 words)</label>
+                <input name="emp_{{ emp.key }}_name" value="{{ emp.name }}" {% if store.is_running %}disabled{% endif %}>
+              </div>
+              <div class="settings-field">
+                <label>Icon</label>
+                <input name="emp_{{ emp.key }}_emoji" value="{{ emp.emoji }}" {% if store.is_running %}disabled{% endif %}>
+              </div>
+              <div class="settings-field">
+                <label>Role Description</label>
+                <textarea name="emp_{{ emp.key }}_intro" rows="5" {% if store.is_running %}disabled{% endif %}>{{ emp.intro }}</textarea>
+              </div>
+              <div class="settings-field">
+                <label>Core Skills (one per line)</label>
+                <textarea name="emp_{{ emp.key }}_skills" rows="5" {% if store.is_running %}disabled{% endif %}>{{ emp.skills }}</textarea>
+              </div>
+            </div>
+            {% if employees|length > 1 %}
+            <button type="submit" formaction="/settings/employee/delete/{{ emp.key }}" formmethod="post" {% if store.is_running %}disabled{% endif %}>Delete Agent</button>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </details>
+
+        <details class="st-expander settings-tasks-block" id="task-settings" open data-persist-key="settings-tasks">
+          <summary>📋 Task Settings: Owners, Dependencies, and Methods</summary>
+          {% for task in tasks %}
+          <section class="manual-card settings-task-card" id="settings-task-{{ task.id }}" data-position-key="{{ task.position_key }}" data-settings-card data-search-text="{{ task.title }} {{ task.owner_name }} {{ task.desc }} {{ task.method }} {{ task.acceptance }}">
+            <div class="task-head">
+              <b>Task {{ task.id }} · {{ task.title }}</b>
+              <span>{{ task.owner_emoji }} {{ task.owner_name }}</span>
+              <em>{{ task.badge }}</em>
+            </div>
+            <div class="settings-card-grid settings-task-grid">
+              <div class="settings-field">
+                <label>Task Name (recommended: fewer than 10 words)</label>
+                <input name="task_{{ task.id }}_title" value="{{ task.title }}" {% if store.is_running %}disabled{% endif %}>
+              </div>
+              <div class="settings-field">
+                <label>Owner</label>
+                <select name="task_{{ task.id }}_owner" {% if store.is_running %}disabled{% endif %}>
+                  {% for emp in employees %}
+                  <option value="{{ emp.key }}" {% if task.owner == emp.key %}selected{% endif %}>{{ emp.emoji }} {{ emp.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="settings-field">
+                <label>Dependency Task IDs (comma-separated, for example: 1,2; leave blank for none)</label>
+                <input name="task_{{ task.id }}_deps" value="{{ task.deps_text }}" {% if store.is_running %}disabled{% endif %}>
+              </div>
+              <div class="settings-field">
+                <label>Context Scope (use “All completed earlier tasks” for final synthesis or document assembly)</label>
+                <select name="task_{{ task.id }}_context_scope" {% if store.is_running %}disabled{% endif %}>
+                  {% for value, label in context_scope_options %}
+                  <option value="{{ value }}" {% if task.context_scope == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="settings-field">
+                <label>Task Description</label>
+                <textarea name="task_{{ task.id }}_desc" rows="5" {% if store.is_running %}disabled{% endif %}>{{ task.desc }}</textarea>
+              </div>
+              <div class="settings-field">
+                <div class="task-method-label-row">
+                  <label for="task-{{ task.id }}-method">Working Method</label>
+                  <label class="task-web-search-check" for="task-{{ task.id }}-web-search">
+                    <input id="task-{{ task.id }}-web-search" type="checkbox"
+                           name="task_{{ task.id }}_web_search"
+                           {% if task.web_search %}checked{% endif %}
+                           {% if store.is_running %}disabled{% endif %}>
+                    <span>Web Research</span>
+                  </label>
+                </div>
+                <textarea id="task-{{ task.id }}-method" name="task_{{ task.id }}_method" rows="5" {% if store.is_running %}disabled{% endif %}>{{ task.method }}</textarea>
+              </div>
+              <div class="settings-field">
+                <label>Output Modalities (select one or more)</label>
+                <input type="hidden" name="task_{{ task.id }}_output_modes_marker" value="1">
+                <details class="multi-select-dropdown" data-output-mode-dropdown data-task-id="{{ task.id }}" data-saved-values="{{ task.output_mode_values|join(',') }}">
+                  <summary>
+                    <span data-output-mode-summary>Selected: {{ task.output_mode_values|join(', ') }}</span>
+                    <small class="multi-select-save-status" data-output-mode-status aria-live="polite"></small>
+                  </summary>
+                  <div class="multi-select-menu">
+                    {% for value, label in output_mode_options %}
+                    <label class="multi-select-option">
+                      <input type="checkbox" name="task_{{ task.id }}_output_modes" value="{{ value }}" {% if value in task.output_mode_values %}checked{% endif %} {% if store.is_running %}disabled{% endif %}>
+                      <span>{{ label }}</span>
+                    </label>
+                    {% endfor %}
+                  </div>
+                </details>
+              </div>
+            </div>
+            {% if tasks|length > 1 %}
+            <button type="submit" formaction="/settings/task/delete/{{ task.id }}" formmethod="post" {% if store.is_running %}disabled{% endif %}>Delete Task</button>
+            {% endif %}
+          </section>
+          {% endfor %}
+        </details>
+
+        <div class="settings-save-bar" data-position-key="settings-save-bar">
+          <span class="save-state" data-dirty-status><i></i>All settings are synced</span>
+          <div class="compact-actions">
+          <button class="primary" type="submit" formaction="/settings" formmethod="post" {% if store.is_running %}disabled{% endif %}>Save Company Setup</button>
+          <button type="submit" formaction="/settings/reset" formmethod="post" name="confirm_reset" value="1" onclick="return confirm('Restore the default workflow? This will clear current task outputs.')" {% if store.is_running %}disabled{% endif %}>Restore Default Workflow</button>
+          </div>
+        </div>
+      </form>
+
+    </section>
+    {% endif %}
+
+    {% if tab == 'docs' %}
+    <section class="docs-page">
+      <div class="page-heading">
+        <div>
+          <span class="section-kicker">DELIVERY ARCHIVE</span>
+          <h2>Delivery History</h2>
+          <p>Each completed workflow automatically archives all task outputs and attachments for traceable delivery history.</p>
+        </div>
+        <div class="archive-count"><b>{{ doc_rows|length }}</b><span>{% if doc_rows|length == 1 %}delivery{% else %}deliveries{% endif %}</span></div>
+      </div>
+      {% if not doc_rows %}
+      <div class="empty-state">
+        <span>⌁</span>
+        <h3>No Deliveries Yet</h3>
+        <p>Complete a workflow to archive its task outputs and attachments here.</p>
+        <a class="download primary" href="/?tab=studio">Return to Agent Office</a>
+      </div>
+      {% else %}
+      <div class="doc-head">
+        <form method="post" action="/docs/clear"><button class="subtle-danger" onclick="return confirm('Clear all delivery history? This action cannot be undone.')" {% if store.is_running %}disabled{% endif %}>Clear History</button></form>
+        <p class="caption">{{ doc_rows|length }} archived {% if doc_rows|length == 1 %}delivery{% else %}deliveries{% endif %}, newest first.</p>
+      </div>
+      {% for doc in doc_rows %}
+      <details class="st-expander doc-expander" data-position-key="{{ doc.position_key }}" {% if loop.first %}open{% endif %}>
+        <summary class="doc-summary">
+          <span>📕 {{ doc.title }}　·　🕒 {{ doc.time }}</span>
+          <button class="subtle-danger doc-summary-delete" type="submit"
+                  form="delete-doc-{{ doc.original_index }}"
+                  aria-label="Delete archived delivery: {{ doc.title }}"
+                  onclick="event.stopPropagation(); return confirm('Delete this archived delivery? This action cannot be undone.')"
+                  {% if store.is_running %}disabled{% endif %}>🗑 Delete</button>
+        </summary>
+        <div class="doc-delivery-actions" aria-label="Delivery downloads">
+          <a class="download" href="/download/doc/{{ doc.original_index }}">📥 Download Markdown</a>
+          {% for asset in doc.assets %}
+          <div class="doc-asset-item" title="{% if asset.task_id %}Task {{ asset.task_id }}{% if asset.task_title %} · {{ asset.task_title }}{% endif %}{% endif %}">
+            <span>{{ asset.name }}</span>
+            <a class="download" href="/download/doc/{{ doc.original_index }}/asset/{{ asset.id }}">Download</a>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="markdown-body">{{ doc.content_html|safe }}</div>
+      </details>
+      <form class="doc-delete-form" id="delete-doc-{{ doc.original_index }}"
+            method="post" action="/docs/delete/{{ doc.original_index }}"></form>
+      {% endfor %}
+      {% endif %}
+    </section>
+    {% endif %}
+
+    <hr>
+    <p class="footer">Agent Office · Your AI Company, Built Your Way</p>
+  </main>
+  <script>
+    const UI_CACHE_PREFIXES = [
+      "genericAgentDetails:",
+      "genericAgentSidebarCollapsed",
+      "genericAgentSidebarWidth",
+      "genericAgentRightCollapsed",
+      "genericAgentDarkMode",
+	      "genericAgentLogScroll",
+	      "genericAgentOfficeLayoutV1:"
+    ];
+    const SIDEBAR_MIN_WIDTH = 260;
+    const SIDEBAR_MAX_WIDTH = 560;
+    const RUNTIME_TOTAL_TASKS = Number("{{ tasks|length }}");
+    const INITIAL_RUNTIME_RUNNING = "{{ '1' if store.is_running else '0' }}" === "1";
+    const FORM_SCROLL_STATE_KEY = "genericAgentPendingFormScrollV3";
+    const PAGE_SCROLL_STATE_PREFIX = "genericAgentPageScrollV1:";
+    const VIEWPORT_ANCHOR_SELECTOR = [
+      "[data-position-key]",
+      ".product-hero",
+      ".top-tabs",
+      ".st-alert",
+      ".st-container",
+      ".manual-card",
+      ".result-card",
+      ".st-expander",
+      ".footer"
+    ].join(",");
+    let scrollRestorationActive = false;
+    let viewportInteractionVersion = 0;
+
+    function sidebarMaxWidth() {
+      return Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, Math.round(window.innerWidth * 0.48)));
+    }
+    function setSidebarWidth(width, persist = true) {
+      const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(sidebarMaxWidth(), Math.round(width)));
+      document.documentElement.style.setProperty("--sidebar-width", clamped + "px");
+      if (persist) localStorage.setItem("genericAgentSidebarWidth", String(clamped));
+    }
+    function bindPersistentDetails(root = document) {
+      const scope = root || document;
+      scope.querySelectorAll("details").forEach((node) => {
+        if (node.dataset.viewportStableBound === "1") return;
+        const summary = node.querySelector(":scope > summary");
+        if (summary) {
+          const capture = () => {
+            node._viewportState = captureViewportState(summary);
+          };
+          summary.addEventListener("pointerdown", capture);
+          summary.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" || event.key === " ") capture();
+          });
+          node.addEventListener("toggle", () => {
+            if (!node._viewportState) return;
+            const state = node._viewportState;
+            node._viewportState = null;
+            settleViewportState(state);
+          });
+        }
+        node.dataset.viewportStableBound = "1";
+      });
+      scope.querySelectorAll("details[data-persist-key]").forEach((node) => {
+        if (node.dataset.persistBound === "1") return;
+        const saved = localStorage.getItem("genericAgentDetails:" + node.dataset.persistKey);
+        if (saved === "1") node.open = true;
+        if (saved === "0") node.open = false;
+        node.dataset.persistBound = "1";
+        node.addEventListener("toggle", () => {
+          localStorage.setItem("genericAgentDetails:" + node.dataset.persistKey, node.open ? "1" : "0");
+        });
+      });
+    }
+    function applyStoredLayout() {
+      const savedSidebarWidth = parseInt(localStorage.getItem("genericAgentSidebarWidth") || "", 10);
+      if (!Number.isNaN(savedSidebarWidth)) setSidebarWidth(savedSidebarWidth, false);
+      const storedSidebarState = localStorage.getItem("genericAgentSidebarCollapsed");
+      if (
+        window.innerWidth <= 520
+        || storedSidebarState === "1"
+        || (storedSidebarState === null && window.innerWidth <= 1100)
+      ) {
+        document.body.classList.add("sidebar-collapsed");
+      }
+      if (localStorage.getItem("genericAgentRightCollapsed") === "1") document.body.classList.add("right-collapsed");
+      if (localStorage.getItem("genericAgentDarkMode") === "1") {
+        document.documentElement.classList.add("dark-mode");
+        document.body.classList.add("dark-mode");
+      }
+      refreshDarkModeButton();
+      bindPersistentDetails(document);
+    }
+    let pendingSubmitSource = null;
+
+    function escapedSelectorValue(value) {
+      const text = String(value || "");
+      if (window.CSS && CSS.escape) return CSS.escape(text);
+      return text.replace(/["\\]/g, "\\$&");
+    }
+
+    function formSelector(form) {
+      if (!form) return "";
+      if (form.id) return `#${escapedSelectorValue(form.id)}`;
+      const action = form.getAttribute("action");
+      return action ? `form[action="${escapedSelectorValue(action)}"]` : "";
+    }
+
+    function elementSelector(element, form) {
+      if (!element || !element.matches) return "";
+      if (element.id) return `#${escapedSelectorValue(element.id)}`;
+      const name = element.getAttribute("name");
+      if (name) {
+        const value = element.getAttribute("value");
+        if (value !== null && element.matches("button, input[type='submit'], input[type='radio'], input[type='checkbox']")) {
+          return `[name="${escapedSelectorValue(name)}"][value="${escapedSelectorValue(value)}"]`;
+        }
+        return `[name="${escapedSelectorValue(name)}"]`;
+      }
+      const href = element.getAttribute("href");
+      if (href) return `a[href="${escapedSelectorValue(href)}"]`;
+      const formAction = element.getAttribute("formaction");
+      if (formAction) return `[formaction="${escapedSelectorValue(formAction)}"]`;
+      return "";
+    }
+
+    function elementSelectorOrdinal(element, form, selector) {
+      if (!element || !selector) return 0;
+      const scope = form || document;
+      const matches = Array.from(scope.querySelectorAll(selector));
+      const index = matches.indexOf(element);
+      return index >= 0 ? index : 0;
+    }
+
+    function currentPageScrollKey() {
+      const url = new URL(window.location.href);
+      const tab = url.searchParams.get("tab") || "studio";
+      const mode = tab === "studio" ? (url.searchParams.get("mode") || "auto") : "";
+      return `${PAGE_SCROLL_STATE_PREFIX}${url.pathname}?tab=${tab}${mode ? `&mode=${mode}` : ""}`;
+    }
+
+    function captureScrollRegions() {
+      const regions = {};
+      document.querySelectorAll("[data-scroll-key]").forEach((node) => {
+        const key = node.dataset.scrollKey;
+        if (!key) return;
+        regions[key] = {
+          left: Number(node.scrollLeft || 0),
+          top: Number(node.scrollTop || 0)
+        };
+      });
+      return regions;
+    }
+
+    function restoreScrollRegions(regions) {
+      if (!regions || typeof regions !== "object") return;
+      document.querySelectorAll("[data-scroll-key]").forEach((node) => {
+        const saved = regions[node.dataset.scrollKey];
+        if (!saved) return;
+        node.scrollLeft = Number(saved.left || 0);
+        node.scrollTop = Number(saved.top || 0);
+      });
+    }
+
+    function capturePageScrollState() {
+      return {
+        ts: Date.now(),
+        tab: document.body.dataset.activeTab || "studio",
+        windowX: Number(window.scrollX || window.pageXOffset || 0),
+        windowY: Number(window.scrollY || window.pageYOffset || 0),
+        scrollRegions: captureScrollRegions()
+      };
+    }
+
+    function saveCurrentPageScroll() {
+      if (scrollRestorationActive) return;
+      try {
+        sessionStorage.setItem(currentPageScrollKey(), JSON.stringify(capturePageScrollState()));
+      } catch (_) {}
+    }
+
+    function readCurrentPageScroll() {
+      try {
+        const raw = sessionStorage.getItem(currentPageScrollKey());
+        if (!raw) return null;
+        const state = JSON.parse(raw);
+        if (!state || Date.now() - Number(state.ts || 0) > 24 * 60 * 60 * 1000) {
+          sessionStorage.removeItem(currentPageScrollKey());
+          return null;
+        }
+        return state;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function visibleViewportAnchor(preferred = null) {
+      const main = document.querySelector(".st-main");
+      if (
+        preferred
+        && preferred.isConnected
+        && preferred.getBoundingClientRect
+        && (!main || main.contains(preferred))
+      ) {
+        return preferred;
+      }
+      if (!main) return null;
+      const candidates = Array.from(main.querySelectorAll(VIEWPORT_ANCHOR_SELECTOR))
+        .filter((node) => {
+          if (node.hidden || !node.getClientRects().length) return false;
+          const rect = node.getBoundingClientRect();
+          return rect.bottom > 0 && rect.top < window.innerHeight;
+        });
+      const fullyVisible = candidates
+        .filter((node) => node.getBoundingClientRect().top >= 0)
+        .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+      if (fullyVisible.length) return fullyVisible[0];
+      return candidates
+        .sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top)[0]
+        || null;
+    }
+
+    function captureViewportState(preferred = null) {
+      const anchor = visibleViewportAnchor(preferred);
+      return {
+        anchor,
+        anchorTop: anchor ? anchor.getBoundingClientRect().top : null,
+        interactionVersion: viewportInteractionVersion,
+        windowX: Number(window.scrollX || window.pageXOffset || 0),
+        windowY: Number(window.scrollY || window.pageYOffset || 0)
+      };
+    }
+
+    function restoreViewportState(state) {
+      if (!state || state.interactionVersion !== viewportInteractionVersion) return;
+      let top = Number(state.windowY || 0);
+      if (state.anchor && state.anchor.isConnected && Number.isFinite(state.anchorTop)) {
+        top += state.anchor.getBoundingClientRect().top - state.anchorTop;
+      }
+      if (
+        Math.abs((window.scrollY || window.pageYOffset || 0) - top) > .5
+        || Math.abs((window.scrollX || window.pageXOffset || 0) - Number(state.windowX || 0)) > .5
+      ) {
+        window.scrollTo({
+          left: Number(state.windowX || 0),
+          top,
+          behavior: "auto"
+        });
+      }
+    }
+
+    function settleViewportState(state) {
+      if (!state) return;
+      const apply = () => restoreViewportState(state);
+      apply();
+      requestAnimationFrame(() => {
+        apply();
+        requestAnimationFrame(apply);
+      });
+      window.setTimeout(apply, 80);
+      window.setTimeout(apply, 180);
+    }
+
+    function mutateWithoutViewportShift(mutation, preferred = null) {
+      const state = captureViewportState(preferred);
+      const result = mutation();
+      settleViewportState(state);
+      return result;
+    }
+
+    function initGlobalPositionStability() {
+      ["pointerdown", "touchstart", "wheel", "keydown"].forEach((eventName) => {
+        window.addEventListener(eventName, () => {
+          viewportInteractionVersion += 1;
+        }, { capture: true, passive: eventName !== "keydown" });
+      });
+      let saveTimer = null;
+      const scheduleSave = () => {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(saveCurrentPageScroll, 90);
+      };
+      window.addEventListener("scroll", scheduleSave, { passive: true });
+      document.querySelectorAll("[data-scroll-key]").forEach((node) => {
+        node.addEventListener("scroll", scheduleSave, { passive: true });
+      });
+      window.addEventListener("pagehide", saveCurrentPageScroll);
+    }
+
+    function anchorSelector(element) {
+      const anchor = element && element.closest
+        ? element.closest("[data-position-key], [data-persist-key]")
+        : null;
+      return anchorElementSelector(anchor);
+    }
+
+    function anchorElementSelector(anchor) {
+      if (!anchor) return "";
+      if (anchor.dataset.positionKey) {
+        return `[data-position-key="${escapedSelectorValue(anchor.dataset.positionKey)}"]`;
+      }
+      if (anchor.dataset.persistKey) {
+        return `[data-persist-key="${escapedSelectorValue(anchor.dataset.persistKey)}"]`;
+      }
+      return anchor.id ? `#${escapedSelectorValue(anchor.id)}` : "";
+    }
+
+    function preserveFormScroll(form = null, source = null) {
+      try {
+        const sidebar = document.querySelector(".st-sidebar");
+        const target = source && source.matches ? source : document.activeElement;
+        const targetRect = target && target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+        const anchor = target && target.closest
+          ? target.closest("[data-position-key], [data-persist-key]")
+          : null;
+        const anchorRect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
+        let fallbackAnchor = null;
+        if (anchor && anchor.dataset.positionKey && anchor.parentElement) {
+          const siblings = Array.from(anchor.parentElement.children)
+            .filter((item) => item.matches && item.matches("[data-position-key]"));
+          const anchorIndex = siblings.indexOf(anchor);
+          fallbackAnchor = siblings[anchorIndex + 1] || siblings[anchorIndex - 1] || null;
+        }
+        const fallbackAnchorRect = fallbackAnchor && fallbackAnchor.getBoundingClientRect
+          ? fallbackAnchor.getBoundingClientRect()
+          : null;
+        const targetInSidebar = Boolean(sidebar && target && sidebar.contains(target));
+        const savedFormSelector = formSelector(form);
+        const savedTargetSelector = elementSelector(target, form);
+        sessionStorage.setItem(FORM_SCROLL_STATE_KEY, JSON.stringify({
+          ts: Date.now(),
+          tab: document.body.dataset.activeTab || "",
+          formSelector: savedFormSelector,
+          targetSelector: savedTargetSelector,
+          targetSelectorOrdinal: elementSelectorOrdinal(target, form, savedTargetSelector),
+          anchorSelector: anchorSelector(target),
+          fallbackAnchorSelector: anchorElementSelector(fallbackAnchor),
+          targetTop: targetRect ? targetRect.top : null,
+          anchorTop: anchorRect ? anchorRect.top : null,
+          fallbackAnchorTop: fallbackAnchorRect ? fallbackAnchorRect.top : null,
+          preferAnchor: Boolean(target && target.tagName === "A" && anchor),
+          targetInSidebar,
+          restoreFocus: Boolean(
+            target
+            && target.matches
+            && target.matches("input:not([type='file']), select, textarea")
+          ),
+          windowX: window.scrollX || window.pageXOffset || 0,
+          windowY: window.scrollY || window.pageYOffset || 0,
+          sidebarY: sidebar ? sidebar.scrollTop : 0,
+          scrollRegions: captureScrollRegions()
+        }));
+      } catch (_) {}
+    }
+
+    function resolveSavedTarget(state) {
+      const form = state.formSelector ? document.querySelector(state.formSelector) : null;
+      if (state.preferAnchor) {
+        const preferredAnchor = state.anchorSelector
+          ? document.querySelector(state.anchorSelector)
+          : null;
+        if (preferredAnchor) return { element: preferredAnchor, top: Number(state.anchorTop) };
+        const preferredFallback = state.fallbackAnchorSelector
+          ? document.querySelector(state.fallbackAnchorSelector)
+          : null;
+        return preferredFallback
+          ? { element: preferredFallback, top: Number(state.fallbackAnchorTop) }
+          : null;
+      }
+      let target = null;
+      if (state.targetSelector) {
+        const scope = form || document;
+        const matches = scope.querySelectorAll(state.targetSelector);
+        target = matches[Number(state.targetSelectorOrdinal || 0)] || matches[0] || null;
+      }
+      if (target) return { element: target, top: Number(state.targetTop) };
+      if (state.anchorSelector) {
+        const anchor = document.querySelector(state.anchorSelector);
+        if (anchor) return { element: anchor, top: Number(state.anchorTop) };
+      }
+      if (state.fallbackAnchorSelector) {
+        const fallbackAnchor = document.querySelector(state.fallbackAnchorSelector);
+        if (fallbackAnchor) {
+          return { element: fallbackAnchor, top: Number(state.fallbackAnchorTop) };
+        }
+      }
+      return null;
+    }
+
+    function restoreFormScroll() {
+      let state = null;
+      let pendingState = false;
+      try {
+        const raw = sessionStorage.getItem(FORM_SCROLL_STATE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const currentTab = document.body.dataset.activeTab || "studio";
+          if (
+            parsed
+            && Date.now() - Number(parsed.ts || 0) <= 120000
+            && (!parsed.tab || parsed.tab === currentTab)
+          ) {
+            state = parsed;
+            pendingState = true;
+          } else {
+            sessionStorage.removeItem(FORM_SCROLL_STATE_KEY);
+          }
+        }
+      } catch (_) {
+        sessionStorage.removeItem(FORM_SCROLL_STATE_KEY);
+      }
+      if (!state) state = readCurrentPageScroll();
+      const root = document.documentElement;
+      if (!state) {
+        root.classList.remove("is-restoring-scroll");
+        return;
+      }
+      scrollRestorationActive = true;
+      let focusRestored = false;
+      let cancelled = false;
+      let resizeObserver = null;
+      const previousScrollBehavior = root.style.scrollBehavior;
+      root.style.scrollBehavior = "auto";
+
+      const applyPosition = () => {
+        if (cancelled) return;
+        const sidebar = document.querySelector(".st-sidebar");
+        restoreScrollRegions(state.scrollRegions);
+        if (!state.scrollRegions && sidebar) sidebar.scrollTop = Number(state.sidebarY || 0);
+        window.scrollTo({
+          left: Number(state.windowX || 0),
+          top: Number(state.windowY || 0),
+          behavior: "auto"
+        });
+
+        if (!pendingState) return;
+        const savedTarget = resolveSavedTarget(state);
+        if (!savedTarget || !Number.isFinite(savedTarget.top)) return;
+        const currentTop = savedTarget.element.getBoundingClientRect().top;
+        const delta = currentTop - savedTarget.top;
+        if (Math.abs(delta) > 1) {
+          if (state.targetInSidebar && sidebar && sidebar.contains(savedTarget.element)) {
+            sidebar.scrollTop += delta;
+          } else {
+            window.scrollBy({ left: 0, top: delta, behavior: "auto" });
+          }
+        }
+        if (!focusRestored && state.restoreFocus && savedTarget.element.focus) {
+          focusRestored = true;
+          try {
+            savedTarget.element.focus({ preventScroll: true });
+          } catch (_) {
+            savedTarget.element.focus();
+          }
+        }
+      };
+
+      const cancelEvents = ["wheel", "touchstart", "pointerdown", "keydown"];
+      const cleanup = () => {
+        if (resizeObserver) resizeObserver.disconnect();
+        cancelEvents.forEach((eventName) => {
+          window.removeEventListener(eventName, cancelRestoration, true);
+        });
+        root.style.scrollBehavior = previousScrollBehavior;
+        root.classList.remove("is-restoring-scroll");
+        if (pendingState) sessionStorage.removeItem(FORM_SCROLL_STATE_KEY);
+        scrollRestorationActive = false;
+        saveCurrentPageScroll();
+      };
+      const cancelRestoration = () => {
+        if (cancelled) return;
+        cancelled = true;
+        cleanup();
+      };
+      cancelEvents.forEach((eventName) => {
+        window.addEventListener(eventName, cancelRestoration, {
+          capture: true,
+          passive: true,
+          once: true
+        });
+      });
+
+      applyPosition();
+      requestAnimationFrame(() => root.classList.remove("is-restoring-scroll"));
+      if ("ResizeObserver" in window && document.body) {
+        resizeObserver = new ResizeObserver(() => requestAnimationFrame(applyPosition));
+        resizeObserver.observe(document.body);
+      }
+      requestAnimationFrame(() => requestAnimationFrame(applyPosition));
+      [80, 220, 480, 900, 1300].forEach((delay) => window.setTimeout(applyPosition, delay));
+      window.addEventListener("load", applyPosition, { once: true });
+      window.addEventListener("pageshow", applyPosition, { once: true });
+      window.setTimeout(() => {
+        applyPosition();
+        cleanup();
+      }, 1450);
+    }
+
+    function submitFormPreservingPosition(source) {
+      const form = source ? source.form : null;
+      if (!form) return;
+      pendingSubmitSource = source;
+      preserveFormScroll(form, source);
+      if (form.requestSubmit) form.requestSubmit();
+      else form.submit();
+    }
+
+    function navigatePreservingPosition(url, source = null) {
+      preserveFormScroll(null, source);
+      saveCurrentPageScroll();
+      window.location.assign(url);
+    }
+
+    function initFormScrollPreservation() {
+      const nativeSubmit = HTMLFormElement.prototype.submit;
+      if (!HTMLFormElement.prototype._genericAgentScrollPatched) {
+        HTMLFormElement.prototype.submit = function patchedSubmit() {
+          const source = pendingSubmitSource || document.activeElement;
+          pendingSubmitSource = null;
+          mergeSettingsFormIntoQuickAdd(this);
+          preserveFormScroll(this, source);
+          nativeSubmit.call(this);
+        };
+        HTMLFormElement.prototype._genericAgentScrollPatched = true;
+      }
+      document.addEventListener("submit", (event) => {
+        if (event.target && event.target.tagName === "FORM") {
+          const source = pendingSubmitSource || event.submitter || document.activeElement;
+          pendingSubmitSource = null;
+          mergeSettingsFormIntoQuickAdd(event.target);
+          preserveFormScroll(event.target, source);
+        }
+      }, true);
+      document.addEventListener("click", (event) => {
+        if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+          return;
+        }
+        const link = event.target.closest("a[href]");
+        if (!link || link.target || link.hasAttribute("download")) return;
+        saveCurrentPageScroll();
+        let destination;
+        try {
+          destination = new URL(link.href, window.location.href);
+        } catch (_) {
+          return;
+        }
+        if (destination.origin !== window.location.origin || destination.pathname !== window.location.pathname) return;
+        if (
+          destination.search === window.location.search
+          && destination.hash
+          && destination.hash !== window.location.hash
+        ) return;
+        const currentTab = document.body.dataset.activeTab || "studio";
+        const destinationTab = destination.searchParams.get("tab") || "studio";
+        if (destinationTab === currentTab) preserveFormScroll(null, link);
+      }, true);
+    }
+	    function mergeSettingsFormIntoQuickAdd(form) {
+	      if (!form || !form.dataset || !form.dataset.mergeSettingsForm) return;
+	      const source = document.getElementById(form.dataset.mergeSettingsForm);
+	      if (!source) return;
+	      form.querySelectorAll('[data-merged-settings-field="1"]').forEach((node) => node.remove());
+	      Array.from(source.elements).forEach((field) => {
+	        if (!field.name || field.disabled || field.type === "file" || field.type === "submit" || field.type === "button") return;
+	        if ((field.type === "checkbox" || field.type === "radio") && !field.checked) return;
+	        const hidden = document.createElement("input");
+	        hidden.type = "hidden";
+	        hidden.name = field.name;
+	        hidden.value = field.value;
+	        hidden.dataset.mergedSettingsField = "1";
+	        form.appendChild(hidden);
+	      });
+	    }
+    function initWorkflowTemplateSelect() {
+      document.querySelectorAll('[data-template-select="1"]').forEach((select) => {
+        if (select.dataset.templateBound === "1") return;
+        select.dataset.templateBound = "1";
+        select.addEventListener("change", () => {
+          if (!select.value) return;
+          const form = select.form;
+          const submitter = form ? form.querySelector('[data-template-apply-button="1"]') : null;
+          if (!form || !submitter || submitter.disabled) return;
+          if (form.requestSubmit) form.requestSubmit(submitter);
+          else submitter.click();
+        });
+      });
+    }
+    function initWorkflowTemplatePreview() {
+      const toggle = document.querySelector("[data-template-preview-toggle]");
+      const preview = document.querySelector("[data-template-preview]");
+      if (!toggle || !preview) return;
+      const setOpen = (open) => {
+        mutateWithoutViewportShift(() => {
+          preview.hidden = !open;
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          toggle.textContent = open ? "Hide Template Preview" : "👁 Preview Template";
+        }, toggle);
+      };
+      toggle.addEventListener("click", () => setOpen(preview.hidden));
+      preview.addEventListener("click", (event) => {
+        const link = event.target.closest("[data-template-preview-link]");
+        if (!link) return;
+        const targetId = decodeURIComponent((link.hash || "").replace(/^#/, ""));
+        const target = targetId ? document.getElementById(targetId) : null;
+        if (!target) return;
+        event.preventDefault();
+        const parentDetails = target.closest("details");
+        if (parentDetails) parentDetails.open = true;
+        history.replaceState(null, "", `#${encodeURIComponent(targetId)}`);
+        target.classList.remove("template-preview-target");
+        void target.offsetWidth;
+        target.classList.add("template-preview-target");
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        window.setTimeout(() => target.classList.remove("template-preview-target"), 1800);
+      });
+    }
+    function toggleSidebar() {
+      mutateWithoutViewportShift(() => {
+        document.body.classList.toggle("sidebar-collapsed");
+        localStorage.setItem("genericAgentSidebarCollapsed", document.body.classList.contains("sidebar-collapsed") ? "1" : "0");
+      });
+    }
+    function toggleRightbar() {
+      mutateWithoutViewportShift(() => {
+        document.body.classList.toggle("right-collapsed");
+        localStorage.setItem("genericAgentRightCollapsed", document.body.classList.contains("right-collapsed") ? "1" : "0");
+      });
+    }
+    function initSidebarResize() {
+      const handle = document.getElementById("sidebar-resize-handle");
+      if (!handle) return;
+      let dragging = false;
+      handle.addEventListener("pointerdown", (event) => {
+        if (document.body.classList.contains("sidebar-collapsed")) return;
+        dragging = true;
+        document.body.classList.add("sidebar-resizing");
+        handle.setPointerCapture(event.pointerId);
+        event.preventDefault();
+      });
+      handle.addEventListener("pointermove", (event) => {
+        if (dragging) setSidebarWidth(event.clientX);
+      });
+      const stopDragging = (event) => {
+        if (!dragging) return;
+        dragging = false;
+        document.body.classList.remove("sidebar-resizing");
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      };
+      handle.addEventListener("pointerup", stopDragging);
+      handle.addEventListener("pointercancel", stopDragging);
+    }
+	    function initOfficeExperience() {
+	      const shell = document.querySelector("[data-office-shell]");
+	      const scene = shell ? shell.querySelector("[data-office-scene]") : null;
+	      if (!shell || !scene) return;
+
+	      const editButton = shell.querySelector("[data-office-edit]");
+	      const arrangeButton = shell.querySelector("[data-office-arrange]");
+	      const resetButton = shell.querySelector("[data-office-reset]");
+	      const fullscreenButton = shell.querySelector("[data-office-fullscreen]");
+	      const fullscreenLabel = shell.querySelector("[data-office-fullscreen-label]");
+	      const layoutStatus = shell.querySelector("[data-office-layout-status]");
+	      const draggables = Array.from(scene.querySelectorAll("[data-office-draggable]"));
+	      const actors = draggables.filter((node) => node.hasAttribute("data-emp-key"));
+	      const props = draggables.filter((node) => node.hasAttribute("data-office-prop"));
+	      const officeId = encodeURIComponent(scene.dataset.officeId || "default");
+	      const storageKey = `genericAgentOfficeLayoutV1:${officeId}`;
+	      let editing = false;
+	      let statusTimer = null;
+	      let dragState = null;
+
+	      const clamp = (value, minimum, maximum) => Math.min(maximum, Math.max(minimum, value));
+	      const numericPosition = (node, property, fallback) => {
+	        const value = parseFloat(node.style[property] || "");
+	        return Number.isFinite(value) ? value : fallback;
+	      };
+	      const positionActorCard = (node) => {
+	        if (!node || !node.hasAttribute("data-emp-key")) return;
+	        const x = numericPosition(node, "left", node.dataset.defaultX || 50);
+	        const y = numericPosition(node, "top", node.dataset.defaultY || 50);
+	        const sceneRect = scene.getBoundingClientRect();
+	        const viewportRect = shell.querySelector("[data-office-viewport]").getBoundingClientRect();
+	        const actorRect = node.querySelector(".emp-actor-button").getBoundingClientRect();
+	        const narrowCanvas = viewportRect.width + 1 < sceneRect.width;
+	        const actorScreenX = (actorRect.left + actorRect.width / 2 - viewportRect.left) / viewportRect.width;
+	        const useBelowCard = narrowCanvas && actorRect.top < viewportRect.top + viewportRect.height * .48;
+	        const useSideCard = !narrowCanvas && y < 64;
+	        node.classList.toggle("card-below", useBelowCard);
+	        node.classList.toggle("card-side", useSideCard);
+	        node.classList.toggle("card-side-left", useSideCard && x > 50);
+	        node.classList.toggle("card-align-left", !useSideCard && actorScreenX <= .5);
+	        node.classList.toggle("card-align-right", !useSideCard && actorScreenX > .5);
+	      };
+	      const closeActorCards = (except = null) => {
+	        actors.forEach((actor) => {
+	          if (actor === except) return;
+	          actor.classList.remove("is-selected");
+	          const actorButton = actor.querySelector(".emp-actor-button");
+	          if (actorButton) actorButton.setAttribute("aria-expanded", "false");
+	          const card = actor.querySelector(".office-actor-card");
+	          if (card) {
+	            card.setAttribute("aria-hidden", "true");
+	            card.hidden = true;
+	          }
+	        });
+	      };
+	      const toggleActorCard = (actor) => {
+	        const shouldOpen = !actor.classList.contains("is-selected");
+	        closeActorCards(actor);
+	        actor.classList.toggle("is-selected", shouldOpen);
+	        const actorButton = actor.querySelector(".emp-actor-button");
+	        if (actorButton) actorButton.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+	        const card = actor.querySelector(".office-actor-card");
+	        if (card) {
+	          card.setAttribute("aria-hidden", shouldOpen ? "false" : "true");
+	          card.hidden = !shouldOpen;
+	        }
+	        if (shouldOpen) positionActorCard(actor);
+	      };
+	      const positionLimits = (node) => node.hasAttribute("data-emp-key")
+	        ? { minX: 5, maxX: 95, minY: 27, maxY: 91 }
+	        : { minX: 4, maxX: 96, minY: 13, maxY: 91 };
+	      const setPosition = (node, x, y) => {
+	        const limits = positionLimits(node);
+	        node.style.left = `${clamp(Number(x), limits.minX, limits.maxX).toFixed(2)}%`;
+	        node.style.top = `${clamp(Number(y), limits.minY, limits.maxY).toFixed(2)}%`;
+	        if (node.classList.contains("is-selected")) positionActorCard(node);
+	      };
+	      const itemKey = (node) => node.dataset.empKey
+	        ? `employee:${node.dataset.empKey}`
+	        : `prop:${node.dataset.officeProp || ""}`;
+	      const announce = (message, restoreDelay = 2400) => {
+	        if (!layoutStatus) return;
+	        window.clearTimeout(statusTimer);
+	        layoutStatus.textContent = message;
+	        if (restoreDelay > 0) {
+	          statusTimer = window.setTimeout(() => {
+	            layoutStatus.textContent = editing
+	              ? "Editing layout: drag elements or use arrow keys for fine adjustments. All positions are saved automatically."
+	              : "Agent status updates in real time. Select an agent to view its model and tasks.";
+	          }, restoreDelay);
+	        }
+	      };
+	      const saveLayout = () => {
+	        const positions = {};
+	        draggables.forEach((node) => {
+	          positions[itemKey(node)] = {
+	            x: Number(numericPosition(node, "left", node.dataset.defaultX || 50).toFixed(2)),
+	            y: Number(numericPosition(node, "top", node.dataset.defaultY || 50).toFixed(2))
+	          };
+	        });
+	        try {
+	          localStorage.setItem(storageKey, JSON.stringify({ version: 1, positions }));
+	        } catch (_) {
+	          announce("Your browser blocked layout storage. These changes will apply only to this page.", 3600);
+	        }
+	      };
+	      const applySavedLayout = () => {
+	        let saved = null;
+	        try {
+	          saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+	        } catch (_) {
+	          localStorage.removeItem(storageKey);
+	        }
+	        if (!saved || saved.version !== 1 || !saved.positions || typeof saved.positions !== "object") return;
+	        draggables.forEach((node) => {
+	          const position = saved.positions[itemKey(node)];
+	          if (!position || !Number.isFinite(Number(position.x)) || !Number.isFinite(Number(position.y))) return;
+	          setPosition(node, position.x, position.y);
+	        });
+	      };
+	      const applyDefaultLayout = () => {
+	        draggables.forEach((node) => {
+	          setPosition(node, Number(node.dataset.defaultX || 50), Number(node.dataset.defaultY || 50));
+	        });
+	      };
+	      const setEditing = (nextEditing) => {
+	        editing = Boolean(nextEditing);
+	        shell.classList.toggle("is-editing", editing);
+	        if (editing) closeActorCards();
+	        if (editButton) {
+	          editButton.setAttribute("aria-pressed", editing ? "true" : "false");
+	          const label = editButton.querySelector("span");
+	          if (label) label.textContent = editing ? "Done" : "Edit Layout";
+	        }
+	        draggables.forEach((node) => {
+	          const isActor = node.hasAttribute("data-emp-key");
+	          if (isActor) {
+	            const actorButton = node.querySelector(".emp-actor-button");
+	            if (actorButton) actorButton.tabIndex = 0;
+	            node.tabIndex = -1;
+	          } else {
+	            node.tabIndex = editing ? 0 : -1;
+	            node.setAttribute("aria-disabled", editing ? "false" : "true");
+	          }
+	        });
+	        announce(
+	          editing
+	            ? "Editing layout: drag elements or use arrow keys for fine adjustments. All positions are saved automatically."
+	            : "Layout saved. Agent and workstation status will continue to update in real time.",
+	          editing ? 0 : 2400
+	        );
+	      };
+	      const autoArrange = () => {
+	        if (!actors.length) return;
+	        const columns = Math.min(5, Math.max(2, Math.ceil(Math.sqrt(actors.length * 1.65))));
+	        const rows = Math.ceil(actors.length / columns);
+	        const minX = 18;
+	        const maxX = 82;
+	        const minY = rows === 1 ? 58 : 43;
+	        const maxY = rows === 1 ? 58 : 80;
+	        actors.forEach((actor, index) => {
+	          const row = Math.floor(index / columns);
+	          const itemsInRow = Math.min(columns, actors.length - row * columns);
+	          const column = index - row * columns;
+	          const rowInset = (columns - itemsInRow) * ((maxX - minX) / Math.max(columns - 1, 1)) / 2;
+	          const x = itemsInRow === 1
+	            ? 50
+	            : minX + rowInset + column * ((maxX - minX - rowInset * 2) / Math.max(itemsInRow - 1, 1));
+	          const y = rows === 1 ? minY : minY + row * ((maxY - minY) / Math.max(rows - 1, 1));
+	          setPosition(actor, x, y);
+	        });
+	        saveLayout();
+	        announce(`Automatically arranged ${actors.length} AI agents.`);
+	      };
+
+	      draggables.forEach((node) => {
+	        const isActor = node.hasAttribute("data-emp-key");
+	        if (isActor) {
+	          const actorButton = node.querySelector(".emp-actor-button");
+	          actorButton.addEventListener("click", (event) => {
+	            if (editing) return;
+	            event.stopPropagation();
+	            toggleActorCard(node);
+	          });
+	        }
+	        node.addEventListener("pointerdown", (event) => {
+	          if (!editing || (event.pointerType === "mouse" && event.button !== 0)) return;
+	          const rect = scene.getBoundingClientRect();
+	          dragState = { node, pointerId: event.pointerId, rect };
+	          node.classList.add("dragging");
+	          shell.classList.add("is-dragging");
+	          node.setPointerCapture(event.pointerId);
+	          event.preventDefault();
+	        });
+	        node.addEventListener("pointermove", (event) => {
+	          if (!dragState || dragState.node !== node || dragState.pointerId !== event.pointerId) return;
+	          const x = (event.clientX - dragState.rect.left) * 100 / dragState.rect.width;
+	          const y = (event.clientY - dragState.rect.top) * 100 / dragState.rect.height;
+	          setPosition(node, x, y);
+	          event.preventDefault();
+	        });
+	        const finishDrag = (event) => {
+	          if (!dragState || dragState.node !== node || dragState.pointerId !== event.pointerId) return;
+	          if (node.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId);
+	          node.classList.remove("dragging");
+	          shell.classList.remove("is-dragging");
+	          dragState = null;
+	          saveLayout();
+	          announce("New position saved automatically.");
+	        };
+	        node.addEventListener("pointerup", finishDrag);
+	        node.addEventListener("pointercancel", finishDrag);
+	        node.addEventListener("keydown", (event) => {
+	          if (!editing || !["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+	          const step = event.shiftKey ? 2.5 : .8;
+	          let x = numericPosition(node, "left", node.dataset.defaultX || 50);
+	          let y = numericPosition(node, "top", node.dataset.defaultY || 50);
+	          if (event.key === "ArrowLeft") x -= step;
+	          if (event.key === "ArrowRight") x += step;
+	          if (event.key === "ArrowUp") y -= step;
+	          if (event.key === "ArrowDown") y += step;
+	          setPosition(node, x, y);
+	          saveLayout();
+	          announce("Position adjusted and saved.");
+	          event.preventDefault();
+	        });
+	      });
+	      scene.addEventListener("click", (event) => {
+	        if (!editing && !event.target.closest("[data-emp-key]")) closeActorCards();
+	      });
+
+	      if (editButton) editButton.addEventListener("click", () => setEditing(!editing));
+	      if (arrangeButton) arrangeButton.addEventListener("click", autoArrange);
+	      if (resetButton) {
+	        resetButton.addEventListener("click", () => {
+	          if (!window.confirm("Restore the default office layout? Your custom arrangement will be cleared.")) return;
+	          localStorage.removeItem(storageKey);
+	          applyDefaultLayout();
+	          announce("Default office layout restored.");
+	        });
+	      }
+	      if (fullscreenButton) {
+	        if (!shell.requestFullscreen) {
+	          fullscreenButton.hidden = true;
+	        } else {
+	          fullscreenButton.addEventListener("click", () => {
+	            if (document.fullscreenElement === shell) {
+	              document.exitFullscreen().catch(() => {});
+	            } else {
+	              shell.requestFullscreen().catch(() => announce("Your browser did not allow full-screen mode."));
+	            }
+	          });
+	          document.addEventListener("fullscreenchange", () => {
+	            const isFullscreen = document.fullscreenElement === shell;
+	            if (fullscreenLabel) fullscreenLabel.textContent = isFullscreen ? "Exit Full Screen" : "Full Screen";
+	            fullscreenButton.setAttribute("aria-pressed", isFullscreen ? "true" : "false");
+	          });
+	        }
+	      }
+
+	      applySavedLayout();
+	      actors.forEach((actor) => {
+	        actor.tabIndex = -1;
+	        const actorButton = actor.querySelector(".emp-actor-button");
+	        if (actorButton) {
+	          actorButton.tabIndex = 0;
+	          actorButton.setAttribute("aria-expanded", "false");
+	        }
+	        const card = actor.querySelector(".office-actor-card");
+	        if (card) {
+	          card.setAttribute("aria-hidden", "true");
+	          card.hidden = true;
+	        }
+	        positionActorCard(actor);
+	      });
+	      props.forEach((prop) => prop.setAttribute("aria-disabled", "true"));
+	      shell.classList.remove("is-restoring-layout");
+	    }
+    function toggleApiKeyVisibility(button) {
+      const row = button.closest(".api-key-row");
+      const input = row ? row.querySelector(".api-key-input") : null;
+      if (!input || input.disabled) return;
+      const shouldShow = input.type === "password";
+      input.type = shouldShow ? "text" : "password";
+      button.textContent = shouldShow ? "Hide" : "Show";
+      button.setAttribute("aria-pressed", shouldShow ? "true" : "false");
+      try {
+        input.focus({ preventScroll: true });
+      } catch (_) {
+        input.focus();
+      }
+    }
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+    function updateRunBanner(data) {
+      const slot = document.getElementById("run-banner-slot");
+      if (!slot) return;
+      const signature = data.running
+        ? `${data.running_task || "Preparing"}|${data.running_employee_label || ""}`
+        : "";
+      if (slot.dataset.runtimeSignature === signature) return;
+      slot.dataset.runtimeSignature = signature;
+      if (!data.running) {
+        slot.innerHTML = "";
+        return;
+      }
+      const current = data.running_task || "Preparing";
+      const employee = data.running_employee_label ? ` · Active agent: ${escapeHtml(data.running_employee_label)}` : "";
+      slot.innerHTML = `
+        <div class="run-banner">
+          <div>⏳ Workflow running · Current: Task ${escapeHtml(current)}${employee}</div>
+          <form method="post" action="/stop"><button>⏹ Stop Run</button></form>
+        </div>
+      `;
+    }
+    function updateFailedAlert(data) {
+      const slot = document.getElementById("failed-alert-slot");
+      if (!slot) return;
+      const signature = data.failed_task
+        ? `${data.failed_task}|${data.api_failure_hint ? "1" : "0"}|${data.search_failure_hint ? "1" : "0"}`
+        : "";
+      if (slot.dataset.runtimeSignature === signature) return;
+      slot.dataset.runtimeSignature = signature;
+      if (!data.failed_task) {
+        slot.innerHTML = "";
+        return;
+      }
+      if (data.search_failure_hint) {
+        slot.innerHTML = `<div class="st-alert danger">⛔ Web research failed for Task ${escapeHtml(data.failed_task)}.<br><b>How to fix it:</b> Open Search Tools in the left sidebar, select an available provider, and enter a valid search API key.</div>`;
+        return;
+      }
+      const apiHint = data.api_failure_hint
+        ? "<br><b>API troubleshooting:</b> Open the model settings in the left sidebar, re-enter the API key for the assigned agent, and confirm the model ID."
+        : "";
+      slot.innerHTML = `<div class="st-alert danger">⛔ Task ${escapeHtml(data.failed_task)} failed after up to {{ task_max_retries }} API retries and manager revision checks. Verify the model configuration, API key, network connection, and endpoint.${apiHint}</div>`;
+    }
+    function updateDoneCounts(data) {
+      document.querySelectorAll("[data-runtime-done-count]").forEach((node) => node.textContent = data.done_count ?? 0);
+      document.querySelectorAll("[data-runtime-total-count]").forEach((node) => node.textContent = data.total_tasks ?? RUNTIME_TOTAL_TASKS);
+      const total = Number(data.total_tasks ?? RUNTIME_TOTAL_TASKS);
+      const done = Number(data.done_count ?? 0);
+      const progress = total > 0 ? Math.max(0, Math.min(100, Math.round(done * 100 / total))) : 0;
+      document.querySelectorAll("[data-runtime-progress]").forEach((node) => { node.style.width = progress + "%"; });
+      document.querySelectorAll("[data-runtime-progress-label]").forEach((node) => { node.textContent = progress + "%"; });
+      document.querySelectorAll("[data-runtime-status-text]").forEach((node) => {
+        node.textContent = data.running ? "Workflow running" : (done === total && total > 0 ? "Run complete" : "Ready to run");
+      });
+      document.querySelectorAll(".hero-status").forEach((node) => {
+        node.classList.toggle("running", Boolean(data.running));
+        node.classList.toggle("complete", !data.running && done === total && total > 0);
+      });
+    }
+    function updatePipeline(data) {
+      const pipeline = document.getElementById("runtime-pipeline");
+      if (!pipeline || !Array.isArray(data.pipeline_rows)) return;
+      const signature = JSON.stringify(data.pipeline_rows.map((task) => [
+        task.id,
+        task.label,
+        task.owner_name,
+        task.color,
+        task.bg
+      ]));
+      if (pipeline.dataset.runtimeSignature === signature) return;
+      pipeline.dataset.runtimeSignature = signature;
+      pipeline.innerHTML = data.pipeline_rows.map((task) => `
+        <div class="pnode" style="border-color:${escapeHtml(task.color)};background:${escapeHtml(task.bg)}">
+          <span class="pn-id" style="color:${escapeHtml(task.color)}">Task ${escapeHtml(task.id)}</span>
+          <b>${escapeHtml(task.label)}</b>
+          <span class="pn-owner">${escapeHtml(task.owner_emoji)} ${escapeHtml(task.owner_name)}</span>
+        </div>
+      `).join("");
+    }
+    function updateOfficeEmployees(data) {
+      if (!Array.isArray(data.employee_rows)) return;
+      data.employee_rows.forEach((employee) => {
+        const key = employee.key || "";
+        if (!key) return;
+        const node = document.querySelector(`.emp-pin[data-emp-key="${CSS.escape(key)}"]`);
+        if (!node) return;
+        node.classList.remove("idle", "working", "done");
+        node.classList.add(employee.state || "idle");
+	        const stateLabels = { working: "Working", done: "Complete", idle: "Available" };
+	        const stateLabel = stateLabels[employee.state] || "Available";
+	        const stateNode = node.querySelector("[data-office-state-label]");
+	        if (stateNode) stateNode.textContent = stateLabel;
+	        const employeeName = node.querySelector(".office-actor-card-head strong")?.textContent?.trim() || "AI Agent";
+	        const actorButton = node.querySelector(".emp-actor-button");
+	        if (!actorButton) return;
+	        actorButton.title = `${employeeName} · View model and assigned tasks`;
+	        actorButton.setAttribute(
+	          "aria-label",
+	          `${employeeName}, ${stateLabel}. View model and assigned tasks. Enter Edit Layout mode to reposition this agent.`
+	        );
+      });
+    }
+    function getRunLogNode() {
+      return document.querySelector('[data-log-scroll="run-log"]');
+    }
+    function updateLogSection(data) {
+      const section = document.getElementById("run-log-section");
+      const log = getRunLogNode();
+      if (!section || !log) return;
+      const wasPinnedBottom = log.scrollHeight - log.clientHeight - log.scrollTop <= 24;
+      const nextText = data.log_text || "";
+      section.hidden = !nextText && !data.running;
+      log.dataset.running = data.running ? "1" : "0";
+      if (log.textContent !== nextText) log.textContent = nextText;
+      requestAnimationFrame(() => {
+        if (wasPinnedBottom || data.running) log.scrollTop = log.scrollHeight;
+      });
+    }
+    let lastResultsRevision = "{{ results_revision or '' }}";
+    let resultsRefreshInFlight = false;
+    function refreshResultsPanelIfNeeded(data) {
+      const nextRevision = data.results_revision || "";
+      const panel = document.getElementById("results-panel-slot");
+      if (!panel || !nextRevision || nextRevision === lastResultsRevision || resultsRefreshInFlight) return;
+      resultsRefreshInFlight = true;
+      fetch("/partials/results", { cache: "no-store" })
+        .then((response) => response.ok ? response.text() : Promise.reject())
+        .then((html) => {
+          const template = document.createElement("template");
+          template.innerHTML = html.trim();
+          const nextPanel = template.content.firstElementChild;
+          const currentPanel = document.getElementById("results-panel-slot");
+          if (!nextPanel || nextPanel.id !== "results-panel-slot" || !currentPanel) {
+            lastResultsRevision = nextRevision;
+            return;
+          }
+          const viewportState = captureViewportState();
+          currentPanel.replaceWith(nextPanel);
+          bindPersistentDetails(nextPanel);
+          lastResultsRevision = nextPanel.dataset.resultsRevision || nextRevision;
+          updateDoneCounts(data);
+          settleViewportState(viewportState);
+        })
+        .catch(() => {})
+        .finally(() => { resultsRefreshInFlight = false; });
+    }
+    let runtimeWasRunning = INITIAL_RUNTIME_RUNNING;
+    let runtimeCompletionReloaded = false;
+    function applyRuntimeUpdate(data) {
+      const viewportState = captureViewportState();
+      updateRunBanner(data);
+      updateFailedAlert(data);
+      updateDoneCounts(data);
+      updatePipeline(data);
+      updateOfficeEmployees(data);
+      updateLogSection(data);
+      refreshResultsPanelIfNeeded(data);
+      settleViewportState(viewportState);
+      if (data.running) {
+        runtimeWasRunning = true;
+        return;
+      }
+      if (runtimeWasRunning && !runtimeCompletionReloaded) {
+        runtimeCompletionReloaded = true;
+        preserveFormScroll(null);
+        window.setTimeout(() => window.location.reload(), 250);
+      }
+    }
+    function pollRuntime() {
+      fetch("/api/runtime", { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : Promise.reject())
+        .then(applyRuntimeUpdate)
+        .catch(() => {});
+    }
+    function refreshDarkModeButton() {
+      const button = document.getElementById("dark-toggle-button");
+      if (!button) return;
+      const isDark = document.body.classList.contains("dark-mode");
+      button.textContent = isDark ? "Light Mode" : "Dark Mode";
+      button.title = isDark ? "Switch to light mode" : "Switch to dark mode";
+      button.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+    }
+    function toggleDarkMode() {
+      const isDark = document.body.classList.toggle("dark-mode");
+      document.documentElement.classList.toggle("dark-mode", isDark);
+      const themeColor = document.querySelector('meta[name="theme-color"]');
+      if (themeColor) themeColor.content = isDark ? "#0f1118" : "#f7f8fc";
+      localStorage.setItem("genericAgentDarkMode", isDark ? "1" : "0");
+      refreshDarkModeButton();
+    }
+    function clearUiCache() {
+      preserveFormScroll(null, document.activeElement);
+      Array.from(localStorage.keys()).forEach((key) => {
+        if (UI_CACHE_PREFIXES.some((prefix) => key.startsWith(prefix))) localStorage.removeItem(key);
+      });
+      window.location.reload();
+    }
+    function showToast(message) {
+      let toast = document.getElementById("ui-toast");
+      if (!toast) {
+        toast = document.createElement("div");
+        toast.id = "ui-toast";
+        toast.className = "ui-toast";
+        toast.setAttribute("role", "status");
+        document.body.appendChild(toast);
+      }
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 1800);
+    }
+    function renderMissionAssets(assets) {
+      const list = document.querySelector("[data-input-asset-list]");
+      const rows = list ? list.querySelector("[data-input-asset-rows]") : null;
+      if (!list || !rows) return;
+      const safeAssets = Array.isArray(assets) ? assets : [];
+      const nextRows = safeAssets.map((asset) => {
+        let note = "";
+        if (asset.extraction_status === "success") {
+          note = `<small>Text/tables extracted · ${escapeHtml(asset.extracted_chars || 0)} characters</small>`;
+        } else if (asset.extraction_status === "visual") {
+          note = "<small>Image will be used as visual context</small>";
+        } else if (asset.extraction_note || asset.note) {
+          note = `<small>${escapeHtml(asset.extraction_note || asset.note)}</small>`;
+        }
+        const assetId = encodeURIComponent(asset.id || "");
+        return `
+          <div class="asset-row">
+            <span>
+              ${escapeHtml(asset.name || "Attachment")} · ${escapeHtml(asset.mime || "application/octet-stream")} · ${escapeHtml(asset.size || 0)} bytes
+              ${note}
+            </span>
+            <a class="download" href="/download/input/asset/${assetId}">Download</a>
+            <button type="button" data-input-asset-delete="${escapeHtml(asset.id || "")}">Delete</button>
+          </div>
+        `;
+      }).join("");
+      mutateWithoutViewportShift(() => {
+        list.hidden = safeAssets.length === 0;
+        rows.innerHTML = nextRows;
+      }, document.querySelector("[data-mission-editor]"));
+    }
+    let missionAutosaveController = null;
+    function initMissionAutosave() {
+      const editor = document.querySelector("[data-mission-editor]");
+      const textarea = document.getElementById("mission-input");
+      if (!editor || !textarea) return null;
+      const saveStatus = editor.querySelector("[data-mission-save-status]");
+      const uploadInput = editor.querySelector("[data-reference-upload]");
+      const uploadStatus = editor.querySelector("[data-file-upload-status]");
+      const drop = uploadInput ? uploadInput.closest(".file-drop") : null;
+      const dropLabel = drop ? drop.querySelector("[data-file-drop-label]") : null;
+      const dropHint = drop ? drop.querySelector("[data-file-drop-hint]") : null;
+      let revision = 0;
+      let savedRevision = 0;
+      let saveTimer = null;
+      let textQueue = Promise.resolve();
+      let mutationQueue = Promise.resolve();
+
+      const setSaveStatus = (message, state) => {
+        if (!saveStatus) return;
+        saveStatus.textContent = message;
+        saveStatus.dataset.state = state || "";
+      };
+      const setUploadStatus = (message, state = "") => {
+        if (!uploadStatus) return;
+        mutateWithoutViewportShift(() => {
+          uploadStatus.hidden = !message;
+          uploadStatus.textContent = message;
+          uploadStatus.classList.toggle("uploading", state === "saving");
+          uploadStatus.dataset.state = state;
+        }, editor);
+      };
+      const requestJson = async (url, options) => {
+        const response = await fetch(url, options);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) throw new Error(data.error || "Save failed. Try again.");
+        return data;
+      };
+      const flushText = () => {
+        window.clearTimeout(saveTimer);
+        if (textarea.disabled || savedRevision >= revision) return textQueue;
+        const targetRevision = revision;
+        const body = new FormData();
+        body.append("input_text", textarea.value);
+        setSaveStatus("Saving...", "saving");
+        const operation = textQueue
+          .catch(() => {})
+          .then(() => requestJson("/api/input/text", {
+            method: "POST",
+            body,
+            headers: { "X-Requested-With": "fetch" },
+            keepalive: true
+          }))
+          .then(() => {
+            savedRevision = Math.max(savedRevision, targetRevision);
+            if (savedRevision >= revision) {
+              setSaveStatus("Autosaved", "saved");
+            } else {
+              setSaveStatus("New changes pending", "pending");
+              saveTimer = window.setTimeout(flushText, 180);
+            }
+          })
+          .catch((error) => {
+            setSaveStatus(error.message || "Autosave failed", "error");
+            throw error;
+          });
+        textQueue = operation;
+        return operation;
+      };
+      const flushTextFully = async () => {
+        window.clearTimeout(saveTimer);
+        while (!textarea.disabled && savedRevision < revision) await flushText();
+      };
+      const flushAll = async () => {
+        await flushTextFully();
+        await mutationQueue;
+        await flushTextFully();
+      };
+      const enqueueMutation = (operation) => {
+        const queued = mutationQueue.catch(() => {}).then(operation);
+        mutationQueue = queued;
+        return queued;
+      };
+
+      textarea.addEventListener("input", () => {
+        revision += 1;
+        setSaveStatus("Changes pending", "pending");
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(flushText, 500);
+      });
+      textarea.addEventListener("blur", () => { flushText().catch(() => {}); });
+      textarea.addEventListener("keydown", (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !textarea.disabled) {
+          event.preventDefault();
+          flushText()
+            .then(() => showToast("Mission input saved"))
+            .catch(() => showToast("Could not save mission input"));
+        }
+      });
+      document.querySelectorAll("[data-prompt-template]").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (!textarea || textarea.disabled) return;
+          const template = button.dataset.promptTemplate || "";
+          if (textarea.value.trim() && !window.confirm("Using this template will replace the current mission brief. Continue?")) return;
+          textarea.value = template;
+          try {
+            textarea.focus({ preventScroll: true });
+          } catch (_) {
+            textarea.focus();
+          }
+          textarea.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      });
+
+      if (uploadInput) {
+        uploadInput.addEventListener("change", () => {
+          const files = Array.from(uploadInput.files || []);
+          if (!files.length) return;
+          if (files.length > 12) {
+            uploadInput.value = "";
+            setUploadStatus("You can upload up to 12 attachments at a time. Select fewer files.", "error");
+            return;
+          }
+          const oversized = files.find((file) => file.size > 8 * 1024 * 1024);
+          if (oversized) {
+            uploadInput.value = "";
+            setUploadStatus(`“${oversized.name}” is larger than 8 MB and was not uploaded. Select another file.`, "error");
+            return;
+          }
+          if (drop) drop.classList.add("has-files");
+          if (dropLabel) dropLabel.textContent = `Uploading ${files.length} attachments`;
+          if (dropHint) dropHint.textContent = files.map((file) => file.name).slice(0, 3).join(", ");
+          const selectedFiles = files.slice();
+          enqueueMutation(async () => {
+            await flushTextFully();
+            const body = new FormData();
+            selectedFiles.forEach((file) => body.append("input_files", file));
+            setUploadStatus("Uploading and saving reference attachments...", "saving");
+            const data = await requestJson("/api/input/assets", {
+              method: "POST",
+              body,
+              headers: { "X-Requested-With": "fetch" }
+            });
+            renderMissionAssets(data.assets);
+            setUploadStatus(`${data.added_count || selectedFiles.length} attachments saved automatically`, "saved");
+            if (dropLabel) dropLabel.textContent = "Select images or files";
+            if (dropHint) dropHint.textContent = "Files upload automatically. Images are added to vision-model context. Maximum 8 MB per file.";
+            if (drop) drop.classList.remove("has-files");
+            uploadInput.value = "";
+          }).catch((error) => {
+            setUploadStatus(error.message || "Attachment upload failed", "error");
+            if (dropLabel) dropLabel.textContent = "Select images or files again";
+            uploadInput.value = "";
+          });
+        });
+      }
+
+      editor.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-input-asset-delete]");
+        if (!button || button.disabled) return;
+        const assetId = button.dataset.inputAssetDelete || "";
+        if (!assetId) return;
+        button.disabled = true;
+        enqueueMutation(async () => {
+          await flushTextFully();
+          setUploadStatus("Deleting the attachment and updating mission input...", "saving");
+          const data = await requestJson(`/api/input/assets/${encodeURIComponent(assetId)}/delete`, {
+            method: "POST",
+            headers: { "X-Requested-With": "fetch" }
+          });
+          renderMissionAssets(data.assets);
+          setUploadStatus("Attachment deleted and mission input updated", "saved");
+        }).catch((error) => {
+          button.disabled = false;
+          setUploadStatus(error.message || "Could not delete the attachment", "error");
+        });
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") flushText().catch(() => {});
+      });
+      return { flushAll };
+    }
+    function initAutoRunTrigger() {
+      const trigger = document.querySelector("[data-auto-run-trigger]");
+      const card = trigger ? trigger.closest(".mode-auto-card") : null;
+      const input = card ? card.querySelector("[data-auto-run-input]") : null;
+      const label = trigger ? trigger.querySelector("[data-auto-run-label]") : null;
+      const hint = card ? card.querySelector("[data-auto-run-hint]") : null;
+      if (!trigger || !card || !input) return;
+      let launching = false;
+      trigger.addEventListener("click", async (event) => {
+        event.preventDefault();
+        if (launching || trigger.disabled) return;
+        launching = true;
+        trigger.disabled = true;
+        input.checked = true;
+        card.classList.add("selected", "launching");
+        document.querySelectorAll(".mode-radio > label, .mode-radio > .mode-auto-card").forEach((item) => {
+          if (item !== card) item.classList.remove("selected");
+        });
+        if (label) label.textContent = "Starting...";
+        if (hint) hint.textContent = "Syncing the latest mission input...";
+        try {
+          if (missionAutosaveController) await missionAutosaveController.flushAll();
+          const response = await fetch("/run/all", {
+            method: "POST",
+            headers: { "X-Requested-With": "fetch" }
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.ok) throw new Error(data.error || "The workflow could not start. Try again.");
+          const slot = document.getElementById("run-banner-slot");
+          if (slot) slot.innerHTML = '<div class="run-banner"><div>Workflow started. AI agents are reading the latest mission input...</div></div>';
+          preserveFormScroll(null, trigger);
+          window.location.assign("/?tab=studio&mode=auto");
+        } catch (error) {
+          launching = false;
+          trigger.disabled = false;
+          card.classList.remove("launching");
+          if (label) label.textContent = "Start";
+          if (hint) hint.textContent = "Run the full dependency-aware workflow with automatic reviews";
+          showToast(error.message || "Could not start Autopilot");
+        }
+      });
+    }
+    function initOutputCopy() {
+      document.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-copy-output]");
+        if (!button) return;
+        const card = button.closest(".result-card");
+        const output = card ? card.querySelector(".task-output-content") : null;
+        const text = output ? output.innerText.trim() : "";
+        if (!text) return;
+        navigator.clipboard.writeText(text)
+          .then(() => showToast("Output copied"))
+          .catch(() => showToast("Copy failed. Select the text manually."));
+      });
+    }
+    function initSettingsExperience() {
+      const search = document.querySelector("[data-settings-search]");
+      const cards = Array.from(document.querySelectorAll("[data-settings-card]"));
+      const result = document.querySelector("[data-search-result]");
+      if (search) {
+        search.addEventListener("input", () => {
+          mutateWithoutViewportShift(() => {
+            const query = search.value.trim().toLocaleLowerCase();
+            let visible = 0;
+            cards.forEach((card) => {
+              const matched = !query || (card.dataset.searchText || "").toLocaleLowerCase().includes(query);
+              card.hidden = !matched;
+              if (matched) {
+                visible += 1;
+                const parent = card.closest("details");
+                if (query && parent) parent.open = true;
+              }
+            });
+            if (result) result.textContent = query ? `${visible} results` : "";
+          }, search);
+        });
+      }
+
+      const form = document.getElementById("settings-form");
+      const dirtyStatus = document.querySelector("[data-dirty-status]");
+      if (form && dirtyStatus) {
+        const markDirty = (event) => {
+          if (event && event.target && event.target.closest("[data-output-mode-dropdown]")) return;
+          dirtyStatus.classList.add("dirty");
+          dirtyStatus.lastChild.textContent = "Unsaved changes";
+        };
+        form.addEventListener("input", markDirty);
+        form.addEventListener("change", markDirty);
+        form.addEventListener("submit", () => {
+          dirtyStatus.classList.remove("dirty");
+          dirtyStatus.lastChild.textContent = "Saving settings...";
+        });
+      }
+    }
+    function initOutputModeSelectors() {
+      const dropdowns = Array.from(document.querySelectorAll("[data-output-mode-dropdown]"));
+      dropdowns.forEach((dropdown) => {
+        const checkboxes = Array.from(dropdown.querySelectorAll('input[type="checkbox"]'));
+        const summary = dropdown.querySelector("[data-output-mode-summary]");
+        const status = dropdown.querySelector("[data-output-mode-status]");
+        const taskId = dropdown.dataset.taskId;
+        let savedValues = (dropdown.dataset.savedValues || "text").split(",").filter(Boolean);
+        let saveInFlight = false;
+        let savePending = false;
+        let saveTimer = null;
+        let statusTimer = null;
+
+        const selectedValues = () => checkboxes.filter((item) => item.checked).map((item) => item.value);
+        const renderSummary = () => {
+          if (summary) summary.textContent = `Selected: ${selectedValues().join(", ")}`;
+        };
+        const setStatus = (message, state = "") => {
+          if (!status) return;
+          status.textContent = message;
+          status.dataset.state = state;
+          window.clearTimeout(statusTimer);
+          if (message && state === "saved") {
+            statusTimer = window.setTimeout(() => {
+              status.textContent = "";
+              status.dataset.state = "";
+            }, 1400);
+          }
+        };
+        const restoreSavedValues = () => {
+          checkboxes.forEach((item) => { item.checked = savedValues.includes(item.value); });
+          renderSummary();
+        };
+        const flushSave = () => {
+          if (saveInFlight || !savePending) return;
+          savePending = false;
+          saveInFlight = true;
+          const values = selectedValues();
+          const body = new FormData();
+          body.append("output_modes_marker", "1");
+          values.forEach((value) => body.append("output_modes", value));
+          setStatus("Saving...", "saving");
+          fetch(`/settings/task/${encodeURIComponent(taskId)}/output-modes`, {
+            method: "POST",
+            body,
+            headers: { "X-Requested-With": "fetch" }
+          })
+            .then(async (response) => {
+              const data = await response.json().catch(() => ({}));
+              if (!response.ok || !data.ok) throw new Error(data.error || "Save failed");
+              savedValues = Array.isArray(data.output_mode_values) ? data.output_mode_values : values;
+              dropdown.dataset.savedValues = savedValues.join(",");
+              if (!savePending) {
+                restoreSavedValues();
+                setStatus("Saved", "saved");
+              }
+            })
+            .catch((error) => {
+              if (!savePending) restoreSavedValues();
+              setStatus(error.message || "Save failed", "error");
+            })
+            .finally(() => {
+              saveInFlight = false;
+              if (savePending) flushSave();
+            });
+        };
+        checkboxes.forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            if (!selectedValues().length) {
+              checkbox.checked = true;
+              renderSummary();
+              showToast("Select at least one output modality");
+              return;
+            }
+            renderSummary();
+            setStatus("Pending", "pending");
+            savePending = true;
+            window.clearTimeout(saveTimer);
+            saveTimer = window.setTimeout(flushSave, 250);
+          });
+        });
+        renderSummary();
+      });
+      document.addEventListener("click", (event) => {
+        const activeDropdown = event.target && event.target.closest
+          ? event.target.closest("[data-output-mode-dropdown]")
+          : null;
+        const hasOpenSibling = dropdowns.some((dropdown) => (
+          dropdown !== activeDropdown && dropdown.open
+        ));
+        if (!hasOpenSibling) return;
+        mutateWithoutViewportShift(() => {
+          dropdowns.forEach((dropdown) => {
+            if (dropdown !== activeDropdown) dropdown.open = false;
+          });
+        }, activeDropdown || event.target);
+      });
+    }
+    initFormScrollPreservation();
+    initGlobalPositionStability();
+    applyStoredLayout();
+    restoreFormScroll();
+    initWorkflowTemplateSelect();
+    initWorkflowTemplatePreview();
+    initSidebarResize();
+	    initOfficeExperience();
+    missionAutosaveController = initMissionAutosave();
+    initAutoRunTrigger();
+    initOutputCopy();
+    initSettingsExperience();
+    initOutputModeSelectors();
+    {% if store.is_running %}
+    window.setInterval(pollRuntime, 2000);
+    {% endif %}
+  </script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<section class="results-panel" id="results-panel-slot" data-results-revision="{{ results_revision or '' }}">
+  <div class="section-heading">
+    <div>
+      <span class="section-kicker">DELIVERABLES</span>
+      <h2>Task Outputs</h2>
+    </div>
+    <span class="results-count"><b data-runtime-done-count>{{ done_count }}</b>/<span data-runtime-total-count>{{ tasks|length }}</span> complete</span>
+  </div>
+  {% for task in tasks %}
+  <details class="st-expander result-card {% if task.done %}is-done{% elif task.ready %}is-ready{% endif %}" data-persist-key="result-task-{{ task.id }}">
+    <summary>
+      <span class="result-index">{{ "%02d"|format(task.id) }}</span>
+      <span class="result-title"><b>{{ task.title }}</b><small>{{ task.owner_emoji }} {{ task.owner_name }}</small></span>
+      <span class="result-badge">{{ task.badge }}</span>
+    </summary>
+    {% if task.output_text or task.assets %}
+      {% if task.reviews %}
+      <details class="review-expander" data-persist-key="result-review-task-{{ task.id }}">
+        <summary>🧭 Manager Reviews ({{ task.reviews|length }} {% if task.reviews|length == 1 %}round{% else %}rounds{% endif %}; latest: {% if task.reviews[-1].passed %}✅ Approved{% else %}🔁 Needs Revision{% endif %}{% if task.reviews[-1].score is not none %} · Score {{ task.reviews[-1].score }}{% endif %})</summary>
+        {% for item in task.reviews %}
+        <div class="review-item">
+          <b>Round {{ item.round or '?' }} · {% if item.passed %}✅ Approved{% else %}🔁 Needs Revision{% endif %} · {{ item.time or '' }}</b>
+          {% if item.summary %}<p class="caption">{{ item.summary }}</p>{% endif %}
+          {% if item.suggestions %}<div class="review-suggestions">{{ item.suggestions }}</div>{% endif %}
+        </div>
+        {% endfor %}
+      </details>
+      {% endif %}
+      {% if task.output_text %}
+      <div class="result-actions">
+        <button type="button" data-copy-output>Copy Text</button>
+        <a class="download" href="/download/task/{{ task.id }}">Download Markdown</a>
+      </div>
+      <div class="markdown-body task-output-content">{{ task.output_html|safe }}</div>
+      {% endif %}
+      {% if task.assets %}
+      <div class="asset-list">
+        <b>Attachments</b>
+        {% for asset in task.assets %}
+        <div class="asset-row">
+          <span>{{ asset.name }} · {{ asset.mime }} · {{ asset.size }} bytes</span>
+          <a class="download" href="/download/task/{{ task.id }}/asset/{{ asset.id }}">Download</a>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% elif store.running_task == task.id %}
+      <div class="st-alert info">⏳ Running... The output will appear here when the task is complete.</div>
+    {% else %}
+      <p class="caption">Not started.</p>
+    {% endif %}
+  </details>
+  {% endfor %}
+</section>

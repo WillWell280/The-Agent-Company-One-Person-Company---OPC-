@@ -1,0 +1,12 @@
+google-generativeai
+openai
+anthropic
+fastapi
+uvicorn
+jinja2
+python-multipart
+pillow
+pdfplumber
+python-docx
+openpyxl
+xlrd
