@@ -1,5 +1,8 @@
 # AI Agent Collaboration Workspace
 
+<img width="1852" height="1050" alt="image" src="https://github.com/user-attachments/assets/b006f111-b8ad-4a27-ba4e-e3e7cfb390d6" />
+
+
 AI Agent Collaboration Workspace is a configurable, general-purpose product for building and running teams of AI agents. Users can define each agent's role and skills, design dependency-aware task workflows, set acceptance criteria, and run missions with text, images, and document attachments.
 
 ## Core Capabilities
